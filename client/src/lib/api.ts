@@ -1,0 +1,146 @@
+import { apiRequest } from "./queryClient";
+import type { 
+  InspirationImage, 
+  ClothingItem, 
+  StyleTagsResponse, 
+  MissingPiece, 
+  MissingPiecesResponse,
+  OutfitCombination,
+  OutfitCombinationsResponse,
+  StyleMatchingResponse
+} from "@shared/schema";
+
+// Get all clothing items
+export async function getClothingItems(): Promise<ClothingItem[]> {
+  const res = await apiRequest("GET", "/api/closet");
+  return res.json();
+}
+
+// Upload an inspiration image
+export async function uploadInspirationImage(file: File): Promise<InspirationImage> {
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const response = await fetch("/api/inspiration", {
+    method: "POST",
+    body: formData,
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`${response.status}: ${text || response.statusText}`);
+  }
+
+  return response.json();
+}
+
+// Analyze an inspiration image with AI
+export async function analyzeInspirationImage(id: number): Promise<InspirationImage> {
+  const res = await apiRequest("POST", `/api/inspiration/${id}/analyze`);
+  return res.json();
+}
+
+// Upload a clothing item
+export async function uploadClothingItem(file: File, category: string): Promise<ClothingItem> {
+  const formData = new FormData();
+  formData.append("image", file);
+  formData.append("category", category);
+
+  const response = await fetch("/api/closet", {
+    method: "POST",
+    body: formData,
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`${response.status}: ${text || response.statusText}`);
+  }
+
+  return response.json();
+}
+
+// Analyze a clothing item with AI
+export async function analyzeClothingItem(id: number): Promise<ClothingItem> {
+  const res = await apiRequest("POST", `/api/closet/${id}/analyze`);
+  return res.json();
+}
+
+// Delete a clothing item
+export async function deleteClothingItem(id: number): Promise<void> {
+  await apiRequest("DELETE", `/api/closet/${id}`);
+}
+
+// Delete an inspiration image
+export async function deleteInspirationImage(id: number): Promise<void> {
+  await apiRequest("DELETE", `/api/inspiration/${id}`);
+}
+
+// Get missing pieces recommendations based on an inspiration image
+export async function getMissingPieceRecommendations(inspirationId: number): Promise<MissingPiece[]> {
+  const res = await apiRequest("GET", `/api/inspiration/${inspirationId}/missing-pieces`);
+  const data = await res.json() as MissingPiecesResponse;
+  return data.missingPieces;
+}
+
+// Get style matching between inspiration and closet items
+export async function getStyleMatching(inspirationId: number): Promise<StyleMatchingResponse> {
+  const res = await apiRequest("GET", `/api/inspiration/${inspirationId}/matching`);
+  return res.json();
+}
+
+// Get outfit combination suggestions based on closet items
+export async function getOutfitCombinations(options?: {
+  occasion?: string;
+  style?: string;
+  season?: string;
+}): Promise<OutfitCombination[]> {
+  let url = '/api/outfits';
+  
+  if (options) {
+    const params = new URLSearchParams();
+    if (options.occasion) params.append('occasion', options.occasion);
+    if (options.style) params.append('style', options.style);
+    if (options.season) params.append('season', options.season);
+    
+    const queryString = params.toString();
+    if (queryString) {
+      url += `?${queryString}`;
+    }
+  }
+  
+  const res = await apiRequest("GET", url);
+  const data = await res.json() as OutfitCombinationsResponse;
+  return data.outfits;
+}
+
+// Share outfit to social media
+export async function shareOutfitToSocial(
+  outfitId: string, 
+  platform: 'instagram' | 'snapchat' | 'twitter' | 'facebook'
+): Promise<{ shareUrl: string }> {
+  const res = await apiRequest("POST", `/api/outfits/${outfitId}/share`, {
+    platform
+  });
+  return res.json();
+}
+
+// Get a specific outfit by ID
+export async function getOutfit(outfitId: string): Promise<OutfitCombination> {
+  const res = await apiRequest("GET", `/api/outfits/${outfitId}`);
+  return res.json();
+}
+
+// Create a shareable image for an outfit
+export async function createOutfitShareableImage(
+  outfitId: string, 
+  options: {
+    background?: string; // color hex code
+    template?: string; // template style
+    caption?: string;
+  }
+): Promise<{ imageUrl: string, shareUrl: string }> {
+  const res = await apiRequest("POST", `/api/outfits/${outfitId}/create-share-image`, options);
+  return res.json();
+}
