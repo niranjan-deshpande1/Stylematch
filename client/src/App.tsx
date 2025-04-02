@@ -16,6 +16,9 @@ import StyleMatching from "@/pages/StyleMatching";
 import OutfitCreator from "@/pages/OutfitCreator";
 import Privacy from "@/pages/Privacy";
 import Terms from "@/pages/Terms";
+import AuthPage from "@/pages/auth-page";
+import { AuthProvider } from "@/hooks/use-auth";
+import { ProtectedRoute } from "@/lib/protected-route";
 
 function Router() {
   return (
@@ -23,15 +26,16 @@ function Router() {
       <PageTransition>
         <Switch>
           <Route path="/" component={Home} />
-          <Route path="/closet" component={Closet} />
-          <Route path="/inspiration" component={Inspiration} />
-          <Route path="/inspiration-upload" component={InspirationUpload} />
-          <Route path="/closet-upload" component={ClosetUpload} />
-          <Route path="/outfit-ideas" component={OutfitIdeas} />
-          <Route path="/outfits" component={OutfitIdeas} />
-          <Route path="/inspiration/:id/missing-pieces" component={MissingPieces} />
-          <Route path="/inspiration/:id/style-matching" component={StyleMatching} />
-          <Route path="/outfit-creator" component={OutfitCreator} />
+          <ProtectedRoute path="/closet" component={Closet} />
+          <ProtectedRoute path="/inspiration" component={Inspiration} />
+          <ProtectedRoute path="/inspiration-upload" component={InspirationUpload} />
+          <ProtectedRoute path="/closet-upload" component={ClosetUpload} />
+          <ProtectedRoute path="/outfit-ideas" component={OutfitIdeas} />
+          <ProtectedRoute path="/outfits" component={OutfitIdeas} />
+          <ProtectedRoute path="/inspiration/:id/missing-pieces" component={MissingPieces} />
+          <ProtectedRoute path="/inspiration/:id/style-matching" component={StyleMatching} />
+          <ProtectedRoute path="/outfit-creator" component={OutfitCreator} />
+          <Route path="/auth" component={AuthPage} />
           <Route path="/privacy" component={Privacy} />
           <Route path="/terms" component={Terms} />
           <Route component={NotFound} />
@@ -44,8 +48,10 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <Router />
-      <Toaster />
+      <AuthProvider>
+        <Router />
+        <Toaster />
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

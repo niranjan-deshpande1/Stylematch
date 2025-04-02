@@ -1,10 +1,38 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+// Track if guest mode is enabled
+let isGuestMode = false;
+
+// Initialize guest mode from localStorage if in browser environment
+if (typeof window !== 'undefined') {
+  isGuestMode = localStorage.getItem('guestMode') === 'true';
+}
+
+// Function to enable/disable guest mode headers in API requests
+export function setGuestModeHeader(enable: boolean) {
+  isGuestMode = enable;
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
   }
+}
+
+// Helper to create headers with guest mode support
+function createHeaders(hasData: boolean = false): HeadersInit {
+  const headers: HeadersInit = {};
+  
+  if (hasData) {
+    headers["Content-Type"] = "application/json";
+  }
+  
+  if (isGuestMode) {
+    headers["X-Guest-Mode"] = "true";
+  }
+  
+  return headers;
 }
 
 export async function apiRequest(
@@ -14,7 +42,7 @@ export async function apiRequest(
 ): Promise<Response> {
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers: createHeaders(!!data),
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
@@ -31,6 +59,7 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const res = await fetch(queryKey[0] as string, {
       credentials: "include",
+      headers: createHeaders(),
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {

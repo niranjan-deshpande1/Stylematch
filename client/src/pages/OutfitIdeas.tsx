@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
-import { apiRequest } from '@/lib/queryClient';
 import { ClothingItem } from '@shared/schema';
 import { Button } from '@/components/ui/button';
 
 export default function OutfitIdeas() {
   const [location] = useLocation();
   const [tags, setTags] = useState<string[]>([]);
+  const [showScrollButton, setShowScrollButton] = useState(false);
   
   // Extract tags from URL query parameters
   useEffect(() => {
@@ -30,68 +30,102 @@ export default function OutfitIdeas() {
     return item.styleTags.some((tag: string) => tags.includes(tag.toLowerCase()));
   });
 
-  return (
-    <section className="container mx-auto py-12 px-4">
-      <div className="max-w-5xl mx-auto">
-        <h1 className="text-zinc-300 text-3xl mb-2 font-light">matching items in your closet</h1>
-        
-        <div className="flex gap-2 flex-wrap mb-6">
-          {tags.map(tag => (
-            <div key={tag} className="px-3 py-1 bg-zinc-800 text-zinc-300 text-xs rounded-full">
-              {tag}
-            </div>
-          ))}
-        </div>
+  // Handle scroll to top functionality
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.scrollY > 300) {
+        setShowScrollButton(true);
+      } else {
+        setShowScrollButton(false);
+      }
+    };
 
-        {isLoading ? (
-          <div className="flex justify-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
-          </div>
-        ) : matchingItems.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-            {matchingItems.map(item => (
-              <div key={item.id} className="bg-zinc-900 border border-zinc-800 overflow-hidden">
-                <div className="aspect-square relative overflow-hidden">
-                  <img 
-                    src={item.imageUrl} 
-                    alt={item.category} 
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className="p-4">
-                  <h3 className="text-zinc-300 mb-2">{item.category}</h3>
-                  <div className="flex gap-2 flex-wrap">
-                    {item.styleTags?.map((tag: string) => (
-                      <span key={tag} className="text-xs text-zinc-500">
-                        #{tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  return (
+    <>
+      <section className="container mx-auto py-12 px-4">
+        <div className="max-w-5xl mx-auto">
+          <h1 className="text-zinc-300 text-3xl mb-2 font-light">matching items in your closet</h1>
+          
+          <div className="flex gap-2 flex-wrap mb-6">
+            {tags.map(tag => (
+              <div key={tag} className="px-3 py-1 bg-zinc-800 text-zinc-300 text-xs rounded-full">
+                {tag}
               </div>
             ))}
           </div>
-        ) : (
-          <div className="text-center py-12 bg-zinc-900 border border-zinc-800">
-            <p className="text-zinc-400 mb-4">no matching items found in your closet</p>
+
+          {isLoading ? (
+            <div className="flex justify-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
+            </div>
+          ) : matchingItems.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+              {matchingItems.map(item => (
+                <div key={item.id} className="bg-zinc-900 border border-zinc-800 overflow-hidden">
+                  <div className="aspect-square relative overflow-hidden">
+                    <img 
+                      src={item.imageUrl} 
+                      alt={item.category} 
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="p-4">
+                    <h3 className="text-zinc-300 mb-2">{item.category}</h3>
+                    <div className="flex gap-2 flex-wrap">
+                      {item.styleTags?.map((tag: string) => (
+                        <span key={tag} className="text-xs text-zinc-500">
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12 bg-zinc-900 border border-zinc-800">
+              <p className="text-zinc-400 mb-4">no matching items found in your closet</p>
+              <Button 
+                className="bg-black hover:bg-zinc-900 text-zinc-300 border border-zinc-800 text-sm"
+                asChild
+              >
+                <a href="/closet-upload">add items to your closet</a>
+              </Button>
+            </div>
+          )}
+          
+          <div className="mt-8">
             <Button 
-              className="bg-black hover:bg-zinc-900 text-zinc-300 border border-zinc-800 text-sm"
+              className="bg-transparent hover:bg-zinc-900 text-zinc-500 border border-zinc-800 text-sm"
               asChild
             >
-              <a href="/closet-upload">add items to your closet</a>
+              <a href="/">← back to home</a>
             </Button>
           </div>
-        )}
-        
-        <div className="mt-8">
-          <Button 
-            className="bg-transparent hover:bg-zinc-900 text-zinc-500 border border-zinc-800 text-sm"
-            asChild
-          >
-            <a href="/">← back to home</a>
-          </Button>
         </div>
-      </div>
-    </section>
+      </section>
+      
+      {/* Direct scroll button in this file */}
+      {showScrollButton && (
+        <button
+          onClick={scrollToTop}
+          className="fixed bottom-6 right-6 z-50 p-3 rounded-full bg-gradient-to-r from-pink-500 to-purple-500 
+                 text-white shadow-lg hover:from-pink-600 hover:to-purple-600 transition-all duration-300"
+          aria-label="back to top"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m18 15-6-6-6 6"/>
+          </svg>
+        </button>
+      )}
+    </>
   );
 }

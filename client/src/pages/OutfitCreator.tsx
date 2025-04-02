@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { getOutfitCombinations, getClothingItems, getOutfit } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
@@ -15,7 +15,8 @@ import {
   Flame,
   Shirt,
   Share2,
-  Palette
+  Palette,
+  ArrowUp
 } from 'lucide-react';
 
 const SEASONS = [

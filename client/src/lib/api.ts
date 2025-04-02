@@ -1,4 +1,4 @@
-import { apiRequest } from "./queryClient";
+import { apiRequest, setGuestModeHeader } from "./queryClient";
 import type { 
   InspirationImage, 
   ClothingItem, 
@@ -9,6 +9,20 @@ import type {
   OutfitCombinationsResponse,
   StyleMatchingResponse
 } from "@shared/schema";
+
+// Helper function to enable/disable guest mode
+export function setGuestMode(enable: boolean) {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('guestMode', enable ? 'true' : 'false');
+    setGuestModeHeader(enable);
+  }
+}
+
+// Helper to check if guest mode is enabled
+export function isGuestMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  return localStorage.getItem('guestMode') === 'true';
+}
 
 // Get all clothing items
 export async function getClothingItems(): Promise<ClothingItem[]> {
@@ -21,10 +35,17 @@ export async function uploadInspirationImage(file: File): Promise<InspirationIma
   const formData = new FormData();
   formData.append("image", file);
 
+  // Add guest mode header if in guest mode
+  const headers: HeadersInit = {};
+  if (isGuestMode()) {
+    headers['X-Guest-Mode'] = 'true';
+  }
+
   const response = await fetch("/api/inspiration", {
     method: "POST",
     body: formData,
-    credentials: "include"
+    credentials: "include",
+    headers
   });
 
   if (!response.ok) {
@@ -47,10 +68,17 @@ export async function uploadClothingItem(file: File, category: string): Promise<
   formData.append("image", file);
   formData.append("category", category);
 
+  // Add guest mode header if in guest mode
+  const headers: HeadersInit = {};
+  if (isGuestMode()) {
+    headers['X-Guest-Mode'] = 'true';
+  }
+
   const response = await fetch("/api/closet", {
     method: "POST",
     body: formData,
-    credentials: "include"
+    credentials: "include",
+    headers
   });
 
   if (!response.ok) {

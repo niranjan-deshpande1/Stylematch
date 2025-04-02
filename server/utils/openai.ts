@@ -287,7 +287,7 @@ export async function generateOutfitCombinations(
 
     let data;
     try {
-      data = JSON.parse(response.choices[0].message.content);
+      data = JSON.parse(response.choices[0].message.content || '');
       // sometimes the model returns a bare array
       if (!data.outfits && Array.isArray(data)) {
         data = { outfits: data };

@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, jsonb, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, jsonb, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -22,10 +22,14 @@ export const inspirationImages = pgTable("inspiration_images", {
   imageUrl: text("image_url").notNull(),
   styleTags: jsonb("style_tags").$type<string[]>().notNull().default([]),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  userId: integer("user_id").notNull(),
+  isSaved: boolean("is_saved").notNull().default(false),
 });
 
 export const insertInspirationImageSchema = createInsertSchema(inspirationImages).pick({
   imageUrl: true,
+  userId: true,
+  isSaved: true,
 });
 
 export const clothingCategories = [
@@ -45,11 +49,13 @@ export const clothingItems = pgTable("clothing_items", {
   styleTags: jsonb("style_tags").$type<string[]>().notNull().default([]),
   category: text("category").notNull().default("other"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  userId: integer("user_id").notNull(),
 });
 
 export const insertClothingItemSchema = createInsertSchema(clothingItems).pick({
   imageUrl: true,
   category: true,
+  userId: true,
 });
 
 export type InspirationImage = typeof inspirationImages.$inferSelect;

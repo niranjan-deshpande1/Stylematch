@@ -82,15 +82,15 @@ export default function Inspiration() {
           ))}
         </div>
       ) : inspirationImages && inspirationImages.length > 0 ? (
-        <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 ${
-          inspirationImages.length === 1 ? 'md:place-items-center md:grid-cols-1' : ''
+        <div className={`grid grid-cols-1 gap-6 ${
+          inspirationImages.length === 1 ? 'max-w-md mx-auto' :
+          inspirationImages.length === 2 ? 'md:grid-cols-2 max-w-3xl mx-auto' :
+          'md:grid-cols-2 lg:grid-cols-3'
         }`}>
           {inspirationImages.map((image) => (
             <Card 
               key={image.id} 
-              className={`bg-zinc-900 border-zinc-800 overflow-hidden hover-lift animate-fade-in transition-all duration-300 hover:border-zinc-700 ${
-                inspirationImages.length === 1 ? 'max-w-md w-full mx-auto' : ''
-              }`}
+              className="bg-zinc-900 border-zinc-800 overflow-hidden hover-lift animate-fade-in transition-all duration-300 hover:border-zinc-700"
             >
               <div className="relative h-60 bg-zinc-900 overflow-hidden flex justify-center items-center group">
                 <div className="w-full h-full flex items-center justify-center bg-black/20">
@@ -112,6 +112,18 @@ export default function Inspiration() {
                   </Button>
                 </div>
                 <div className="absolute bottom-0 right-0 m-3 flex gap-2 transform translate-y-1 opacity-0 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
+                  <Button
+                    size="sm"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      fetch(`/api/inspiration/${image.id}/save`, { method: 'POST' })
+                        .then(() => queryClient.invalidateQueries({ queryKey: ['/api/inspiration'] }));
+                    }}
+                    className="bg-black/70 backdrop-blur-sm hover:bg-black/90 text-white shadow-lg"
+                  >
+                    {image.isSaved ? <BookmarkMinus className="h-4 w-4" /> : <BookmarkPlus className="h-4 w-4" />}
+                  </Button>
                   <Link href={`/inspiration/${image.id}/style-matching`}>
                     <Button 
                       size="sm" 

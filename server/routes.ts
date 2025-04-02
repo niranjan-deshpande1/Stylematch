@@ -5,11 +5,7 @@ import multer from "multer";
 import fs from "fs";
 import path from "path";
 import { analyzeClothingImage, analyzeOutfitImage, identifyMissingPieces, generateOutfitCombinations } from "./utils/openai";
-
-// Define a new Request type that includes multer's file property
-interface Request extends ExpressRequest {
-  file?: Express.Multer.File;
-}
+import { setupAuth, isAuthenticated } from "./auth";
 import {
   clothingCategories,
   StyleTagsResponse,
@@ -18,6 +14,11 @@ import {
   OutfitCombinationsResponse,
   StyleMatchingResponse
 } from "@shared/schema";
+
+// Define a new Request type that includes multer's file property
+interface Request extends ExpressRequest {
+  file?: Express.Multer.File;
+}
 
 // Configure multer for in-memory storage
 const upload = multer({
@@ -42,6 +43,9 @@ const saveImage = async (buffer: Buffer, prefix: string): Promise<string> => {
 };
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Set up authentication
+  setupAuth(app);
+
   // Serve uploaded images
   app.get('/api/images/:filename', (req, res) => {
     const filename = req.params.filename;
@@ -59,8 +63,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Helper to get user ID from request
+  const getUserId = (req: Request): number | null => {
+    // Check if the user is logged in or if they're in guest mode
+    if (req.user?.id) {
+      return req.user.id;
+    } else if (req.headers['x-guest-mode'] === 'true' || req.query.guestMode === 'true') {
+      // For guest users, we'll use a special ID (1)
+      return 1;
+    }
+    return null;
+  };
+
   // Upload inspiration image
   app.post('/api/inspiration', upload.single('image'), async (req, res) => {
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ message: 'Please log in to upload images' });
+    }
     try {
       if (!req.file) {
         return res.status(400).json({ message: 'No image file provided' });
@@ -70,7 +90,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const imageUrl = await saveImage(req.file.buffer, 'inspiration');
 
       // Create inspiration image record
-      const newImage = await storage.createInspirationImage({ imageUrl });
+      const newImage = await storage.createInspirationImage({
+        imageUrl,
+        userId,
+        isSaved: false
+      });
 
       res.status(201).json(newImage);
     } catch (error) {
@@ -145,6 +169,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Save/unsave inspiration
+  app.post('/api/inspiration/:id/save', async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: 'Please log in to save images' });
+      }
+
+      const id = parseInt(req.params.id);
+      const image = await storage.getInspirationImage(id);
+
+      if (!image) {
+        return res.status(404).json({ message: 'Inspiration image not found' });
+      }
+
+      const updated = await storage.updateInspirationImageSaved(id, !image.isSaved);
+      res.json(updated);
+    } catch (error) {
+      console.error('Error saving inspiration:', error);
+      res.status(500).json({ message: 'Failed to save inspiration' });
+    }
+  });
+
   // Get all clothing items
   app.get('/api/closet', async (req, res) => {
     try {
@@ -165,6 +212,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Upload clothing item
   app.post('/api/closet', upload.single('image'), async (req, res) => {
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ message: 'Please log in to upload items' });
+    }
+
     try {
       if (!req.file) {
         return res.status(400).json({ message: 'No image file provided' });
@@ -183,7 +235,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create clothing item record
       const newItem = await storage.createClothingItem({
         imageUrl,
-        category
+        category,
+        userId
       });
 
       res.status(201).json(newItem);
@@ -277,7 +330,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get all clothing items to build a profile of user's closet
       const clothingItems = await storage.getClothingItems();
-      const userClosetTags = clothingItems.flatMap(item => item.styleTags);
+      const userClosetTags = clothingItems.flatMap(item => item.styleTags || []);
 
       // Identify missing pieces with OpenAI
       const missingPieces = await identifyMissingPieces(base64Image, userClosetTags);
@@ -394,17 +447,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Local validation to enforce outfit composition rules
       const validatedOutfits = outfits.filter((outfit: any) => {
         // Convert all item IDs to numbers for consistency
-        const itemIds = outfit.items.map((id: any) => typeof id === 'string' ? parseInt(id, 10) : id);
+        const itemIds = outfit.items.map((id: string | number) => typeof id === 'string' ? parseInt(id, 10) : id);
 
         // Check if outfit has exactly one top
-        const hasTop = itemIds.some(id => tops.some(top => top.id === id));
+        const hasTop = itemIds.some((id: number) => tops.some(top => top.id === id));
 
         // Check if outfit has exactly one bottom
-        const hasBottom = itemIds.some(id => bottoms.some(bottom => bottom.id === id));
+        const hasBottom = itemIds.some((id: number) => bottoms.some(bottom => bottom.id === id));
 
         // Check if outfit has exactly one shoe (required if shoes are available)
         const hasShoe = shoes.length > 0 ?
-          itemIds.some(id => shoes.some(shoe => shoe.id === id)) :
+          itemIds.some((id: number) => shoes.some(shoe => shoe.id === id)) :
           true; // Skip shoe check if no shoes in closet
 
         // Return true only if outfit meets all requirements
@@ -439,25 +492,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       });
 
-      // Ensure all outfits have unique IDs
-      const outfitsWithIds = uniqueOutfits.map((outfit, index) => ({
-        ...outfit,
-        id: `outfit-${index + 1}`
-      }));
+      // Limit to a reasonable number of outfits (maximum 3-4)
+      const limitedOutfits = uniqueOutfits.slice(0, 4);
 
-      const MAX_OUTFITS = 4;
-      const limitedOutfits = outfitsWithIds.slice(0, MAX_OUTFITS);
-
-      res.json({ outfits: limitedOutfits });
+      res.json({
+        outfits: limitedOutfits,
+        count: limitedOutfits.length,
+        totalGenerated: outfits.length,
+        validCount: validatedOutfits.length,
+        uniqueCount: uniqueOutfits.length
+      });
     } catch (error) {
-      console.error('Error generating outfit combinations:', error);
-      res.status(500).json({ message: 'Failed to generate outfit combinations' });
+      console.error('Error generating outfits:', error);
+      res.status(500).json({ message: 'Failed to generate outfits' });
     }
   });
 
   // outfits aren't saved anywhere, so there's nothing to look up by id
   app.get('/api/outfits/:id', (_req, res) => {
     res.status(404).json({ message: 'Outfit not found' });
+  });
+
+  // Health check endpoint
+  app.get('/api/health', (_req, res) => {
+    res.status(200).json({ status: 'healthy' });
   });
 
   const httpServer = createServer(app);

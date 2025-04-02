@@ -1,34 +1,7 @@
 import { Link } from 'wouter';
-import { ArrowUp } from 'lucide-react';
-import { useEffect, useState } from 'react';
 import logoPath from "@assets/logo.png";
-import { Button } from '@/components/ui/button';
 
 export default function Footer() {
-  const [showScrollTop, setShowScrollTop] = useState(false);
-
-  // Handle scroll event to show/hide the scroll-to-top button
-  useEffect(() => {
-    const handleScroll = () => {
-      if (window.scrollY > 400) {
-        setShowScrollTop(true);
-      } else {
-        setShowScrollTop(false);
-      }
-    };
-
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  // Smooth scroll to top function
-  const scrollToTop = () => {
-    window.scrollTo({
-      top: 0,
-      behavior: 'smooth'
-    });
-  };
-
   // Handle link clicks to scroll to top
   const handleLinkClick = () => {
     // Allow a small delay for the navigation to complete
@@ -83,7 +56,7 @@ export default function Footer() {
                 </Link>
               </div>
               <div>
-                <Link href="/outfit-ideas">
+                <Link href="/outfit-creator">
                   <span onClick={handleLinkClick} className="text-gray-300 hover:text-white transition-colors duration-300 cursor-pointer">
                     outfit ideas
                   </span>
@@ -126,21 +99,6 @@ export default function Footer() {
         <div className="mt-10 pt-8 border-t border-neutral-800 text-gray-500 text-xs text-center">
           <p>© {new Date().getFullYear()} StyleMatch. All rights reserved.</p>
         </div>
-      </div>
-
-      {/* Scroll to top button */}
-      <div
-        className={`fixed bottom-6 right-6 z-50 transition-all duration-300 ${
-          showScrollTop ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none'
-        }`}
-      >
-        <Button
-          onClick={scrollToTop}
-          size="icon"
-          className="rounded-full w-12 h-12 bg-zinc-800/80 hover:bg-zinc-700 backdrop-blur-sm shadow-lg border border-zinc-700 hover-lift"
-        >
-          <ArrowUp className="h-5 w-5" />
-        </Button>
       </div>
     </footer>
   );

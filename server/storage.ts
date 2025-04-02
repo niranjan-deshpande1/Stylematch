@@ -3,19 +3,36 @@ import {
   inspirationImages, type InspirationImage, type InsertInspirationImage,
   clothingItems, type ClothingItem, type InsertClothingItem
 } from "@shared/schema";
+import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
+import pg from "pg";
+const { Pool } = pg;
+
+// Create a PostgreSQL pool for session storage
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+// Create PostgreSQL session store
+const PostgresSessionStore = connectPgSimple(session);
 
 // Interface for storage operations
 export interface IStorage {
+  // Session store for authentication
+  sessionStore: session.Store;
+  
   // User methods
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  findOrCreateGoogleUser(profile: any): Promise<User>;
 
   // Inspiration image methods
   getInspirationImages(): Promise<InspirationImage[]>;
   getInspirationImage(id: number): Promise<InspirationImage | undefined>;
   createInspirationImage(image: InsertInspirationImage): Promise<InspirationImage>;
   updateInspirationImageTags(id: number, tags: string[]): Promise<InspirationImage | undefined>;
+  updateInspirationImageSaved(id: number, isSaved: boolean): Promise<InspirationImage | undefined>;
   deleteInspirationImage(id: number): Promise<boolean>;
   
   // Clothing item methods
@@ -35,6 +52,7 @@ export class MemStorage implements IStorage {
   private userCurrentId: number;
   private inspirationImageCurrentId: number;
   private clothingItemCurrentId: number;
+  public sessionStore: session.Store;
 
   constructor() {
     this.users = new Map();
@@ -43,6 +61,12 @@ export class MemStorage implements IStorage {
     this.userCurrentId = 1;
     this.inspirationImageCurrentId = 1;
     this.clothingItemCurrentId = 1;
+    
+    // Create the PostgreSQL session store
+    this.sessionStore = new PostgresSessionStore({
+      pool,
+      createTableIfMissing: true,
+    });
   }
 
   // User methods
@@ -63,6 +87,25 @@ export class MemStorage implements IStorage {
     return user;
   }
 
+  async findOrCreateGoogleUser(profile: any): Promise<User> {
+    // Look for an existing user with this Google ID as username
+    const googleId = profile.id;
+    const existingUser = await this.getUserByUsername(googleId);
+    
+    if (existingUser) {
+      return existingUser;
+    }
+    
+    // Create a new user
+    const newUser: InsertUser = {
+      username: googleId,
+      // Use a random password for Google users since we won't be using it
+      password: `google_${Math.random().toString(36).substring(2)}`,
+    };
+    
+    return this.createUser(newUser);
+  }
+
   // Inspiration image methods
   async getInspirationImages(): Promise<InspirationImage[]> {
     return Array.from(this.inspirationImages.values())
@@ -79,7 +122,9 @@ export class MemStorage implements IStorage {
       ...image,
       id,
       styleTags: [],
-      createdAt: new Date()
+      createdAt: new Date(),
+      userId: image.userId,
+      isSaved: image.isSaved || false
     };
     this.inspirationImages.set(id, newImage);
     return newImage;
@@ -90,6 +135,15 @@ export class MemStorage implements IStorage {
     if (!image) return undefined;
     
     const updatedImage = { ...image, styleTags: tags };
+    this.inspirationImages.set(id, updatedImage);
+    return updatedImage;
+  }
+
+  async updateInspirationImageSaved(id: number, isSaved: boolean): Promise<InspirationImage | undefined> {
+    const image = this.inspirationImages.get(id);
+    if (!image) return undefined;
+    
+    const updatedImage = { ...image, isSaved };
     this.inspirationImages.set(id, updatedImage);
     return updatedImage;
   }
@@ -120,7 +174,9 @@ export class MemStorage implements IStorage {
       ...item,
       id,
       styleTags: [],
-      createdAt: new Date()
+      createdAt: new Date(),
+      userId: item.userId,
+      category: item.category || "other"
     };
     this.clothingItems.set(id, newItem);
     return newItem;
