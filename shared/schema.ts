@@ -64,11 +64,24 @@ export const StyleTagsResponse = z.object({
 
 export type StyleTagsResponse = z.infer<typeof StyleTagsResponse>;
 
+export const ProductExampleSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  link: z.string().optional(),
+  where: z.string().optional(),
+  price: z.string().optional(),
+});
+
+export type ProductExample = z.infer<typeof ProductExampleSchema>;
+
 export const MissingPieceSchema = z.object({
   category: z.string(),
   description: z.string(),
   importance: z.enum(["high", "medium", "low"]),
   reason: z.string(),
+  examples: z.array(ProductExampleSchema).optional(),
+  searchTerms: z.array(z.string()).optional(),
+  wheretoBuy: z.string().optional(),
 });
 
 export type MissingPiece = z.infer<typeof MissingPieceSchema>;

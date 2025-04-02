@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { getMissingPieceRecommendations } from "@/lib/api";
+import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Link, useRoute } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ChevronRight, Info, Check } from "lucide-react";
-import type { MissingPiece } from "@shared/schema";
+import { ArrowLeft, ChevronRight, Info, Check, ExternalLink, Tag } from "lucide-react";
+import type { MissingPiece, ProductExample } from "@shared/schema";
 import { cn } from "@/lib/utils";
 
 export default function MissingPieces() {
@@ -14,9 +15,24 @@ export default function MissingPieces() {
   const [, params] = useRoute("/inspiration/:id/missing-pieces");
   const inspirationId = params?.id ? parseInt(params.id) : null;
 
+  // Get the inspiration image
+  const { 
+    data: inspirationImage,
+    isLoading: isLoadingInspirationImage
+  } = useQuery({
+    queryKey: ['/api/inspiration', inspirationId],
+    queryFn: async () => {
+      if (!inspirationId) throw new Error("No inspiration ID provided");
+      const res = await apiRequest("GET", `/api/inspiration/${inspirationId}`);
+      return res.json();
+    },
+    enabled: !!inspirationId,
+  });
+
+  // Get missing pieces recommendations
   const { 
     data: missingPieces,
-    isLoading,
+    isLoading: isLoadingMissingPieces,
     error
   } = useQuery({
     queryKey: ['/api/inspiration', inspirationId, 'missing-pieces'],
@@ -26,6 +42,8 @@ export default function MissingPieces() {
     },
     enabled: !!inspirationId,
   });
+  
+  const isLoading = isLoadingMissingPieces || isLoadingInspirationImage;
 
   if (!inspirationId) {
     return (
@@ -79,7 +97,43 @@ export default function MissingPieces() {
                 <div className="h-4 bg-zinc-800 rounded-full w-full mb-2"></div>
                 <div className="h-4 bg-zinc-800 rounded-full w-full mb-2"></div>
                 <div className="h-4 bg-zinc-800 rounded-full w-3/4 mb-6"></div>
-                <div className="flex justify-end">
+                
+                {/* Product examples skeleton */}
+                <div className="mt-8 mb-6">
+                  <div className="h-5 bg-zinc-800 rounded-full w-40 mb-4"></div>
+                  <div className="space-y-4">
+                    {[1, 2].map((j) => (
+                      <div key={j} className="p-4 bg-zinc-800 rounded-lg">
+                        <div className="h-4 bg-zinc-700 rounded-full w-48 mb-3"></div>
+                        <div className="h-3 bg-zinc-700 rounded-full w-full mb-2"></div>
+                        <div className="h-3 bg-zinc-700 rounded-full w-2/3 mb-4"></div>
+                        <div className="flex gap-2">
+                          <div className="h-6 bg-zinc-700 rounded-md w-20"></div>
+                          <div className="h-6 bg-zinc-700 rounded-md w-24"></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Search terms skeleton */}
+                <div className="mb-6">
+                  <div className="h-5 bg-zinc-800 rounded-full w-48 mb-4"></div>
+                  <div className="flex flex-wrap gap-2">
+                    {[1, 2, 3, 4].map((j) => (
+                      <div key={j} className="h-7 bg-zinc-800 rounded-full w-24"></div>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Where to buy skeleton */}
+                <div className="mb-6">
+                  <div className="h-5 bg-zinc-800 rounded-full w-32 mb-4"></div>
+                  <div className="h-4 bg-zinc-800 rounded-full w-full mb-2"></div>
+                  <div className="h-4 bg-zinc-800 rounded-full w-4/5"></div>
+                </div>
+                
+                <div className="flex justify-end mt-6">
                   <div className="h-8 bg-zinc-800 rounded-md w-36"></div>
                 </div>
               </CardContent>
@@ -159,6 +213,41 @@ export default function MissingPieces() {
           <span className="gradient-text">missing pieces</span>
         </h1>
       </div>
+      
+      {/* Inspiration Image Card */}
+      {inspirationImage && (
+        <div className="mb-8">
+          <Card className="bg-zinc-900 border-zinc-800 overflow-hidden">
+            <div className="flex flex-col md:flex-row">
+              <div className="w-full md:w-1/3 h-60 md:h-auto bg-black relative">
+                <img 
+                  src={inspirationImage.imageUrl} 
+                  alt="Inspiration" 
+                  className="absolute inset-0 w-full h-full object-contain"
+                />
+              </div>
+              <div className="w-full md:w-2/3 p-6">
+                <h2 className="text-xl mb-3 font-light">inspiration #{inspirationImage.id}</h2>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {inspirationImage.styleTags && inspirationImage.styleTags.map((tag, idx) => (
+                    <Badge key={idx} className="bg-zinc-800 hover:bg-zinc-700 text-zinc-400">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+                <div className="flex space-x-3">
+                  <Link href={`/inspiration/${inspirationId}/style-matching`}>
+                    <Button variant="outline" size="sm" className="border-zinc-700">
+                      <Tag className="h-4 w-4 mr-2" />
+                      match with closet
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
 
       <p className="text-zinc-400 mb-8 max-w-3xl">
         based on your inspiration image and existing closet, here are the pieces we recommend adding to complete your look:
@@ -196,7 +285,74 @@ export default function MissingPieces() {
                   <span className="text-zinc-500 inline-block pr-2">why:</span>
                   {piece.reason}
                 </p>
-                <div className="flex justify-end">
+                
+                {piece.examples && piece.examples.length > 0 && (
+                  <>
+                    <h4 className="text-zinc-300 font-medium mb-2 mt-6">product examples</h4>
+                    <div className="space-y-3 mb-6">
+                      {piece.examples.map((example, idx) => (
+                        <Card key={idx} className="bg-zinc-800 border-zinc-700 overflow-hidden">
+                          <CardContent className="p-4">
+                            <h5 className="text-zinc-200 font-medium text-sm mb-1">{example.name}</h5>
+                            {example.description && (
+                              <p className="text-zinc-400 text-xs mb-2">{example.description}</p>
+                            )}
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {example.where && (
+                                <Badge variant="outline" className="text-xs bg-zinc-700/50 text-zinc-300 border-zinc-600">
+                                  {example.where}
+                                </Badge>
+                              )}
+                              {example.price && (
+                                <Badge variant="outline" className="text-xs bg-zinc-700/50 text-zinc-300 border-zinc-600">
+                                  {example.price}
+                                </Badge>
+                              )}
+                            </div>
+                            {example.link && (
+                              <div className="mt-3">
+                                <a 
+                                  href={example.link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2"
+                                >
+                                  view product →
+                                </a>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  </>
+                )}
+                
+                {piece.searchTerms && piece.searchTerms.length > 0 && (
+                  <div className="mb-6">
+                    <h4 className="text-zinc-300 font-medium mb-2">search suggestions</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {piece.searchTerms.map((term, idx) => (
+                        <Badge 
+                          key={idx}
+                          className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 cursor-pointer"
+                          onClick={() => window.open(`https://www.google.com/search?q=${encodeURIComponent(term)}`, '_blank')}
+                        >
+                          {term}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {piece.wheretoBuy && (
+                  <div className="mb-6">
+                    <h4 className="text-zinc-300 font-medium mb-2">where to buy</h4>
+                    <p className="text-zinc-400 text-sm">{piece.wheretoBuy}</p>
+                  </div>
+                )}
+                
+                <div className="flex justify-end mt-6">
                   <Link href="/closet">
                     <Button 
                       variant="outline" 

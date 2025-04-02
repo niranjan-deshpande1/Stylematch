@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { MissingPiece } from "../../shared/schema";
 
+// Using gpt-4o-mini which is more cost-effective than gpt-4o
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || "" });
 
 // Helper function to handle nullish content
@@ -13,6 +14,9 @@ function parseOpenAIResponseContent(content: string | null): any {
     return { tags: [] };
   }
 }
+
+// Check if OpenAI API key is valid
+const isOpenAIConfigured = !!process.env.OPENAI_API_KEY;
 
 // Fashion style definitions that can be updated by experts
 const fashionStyleGuide = `
@@ -59,7 +63,7 @@ Style Aesthetics:
 export async function analyzeClothingImage(base64Image: string): Promise<string[]> {
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
@@ -112,7 +116,7 @@ export async function analyzeClothingImage(base64Image: string): Promise<string[
 export async function analyzeOutfitImage(base64Image: string): Promise<string[]> {
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
@@ -162,47 +166,28 @@ export async function analyzeOutfitImage(base64Image: string): Promise<string[]>
 /**
  * Analyzes an inspiration image and user's closet to identify missing pieces
  * @param base64Image Base64 encoded inspiration image
- * @param userClothingTags Array of tags from user's existing clothing items
+ * @param userClosetTags Style tags from the items already in the user's closet
  * @returns Array of missing piece recommendations
  */
 export async function identifyMissingPieces(
   base64Image: string,
-  userClothingTags: string[]
+  userClosetTags: string[]
 ): Promise<MissingPiece[]> {
   try {
-    // First, flatten all user clothing tags into a single string
-    const userClosetDescription = userClothingTags.join(", ");
-
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
           content:
-            `You are a fashion expert AI that helps users complete their outfits by recommending missing pieces. Use the following expert-provided style definitions:
-
-            ${fashionStyleGuide}
-
-            Analyze the inspiration image and compare it with the user's existing closet. Identify 2-3 key items that would help complete outfits similar to the inspiration. Focus on versatile pieces that would work well with their existing wardrobe.
-
-            For each recommendation:
-            1. Provide a specific category (tops, bottoms, outerwear, shoes, accessories)
-            2. Give a detailed description
-            3. Assign importance (high/medium/low)
-            4. Explain why this item would enhance their wardrobe
-
-            Respond with JSON in the format:
-            { "missingPieces": [
-              {"category": "category", "description": "description", "importance": "high|medium|low", "reason": "reason"},
-              ...
-            ]}`
+            `You are a fashion expert AI that identifies missing wardrobe pieces. Given an inspiration outfit image and a list of style tags describing items the user already owns, recommend the specific pieces they'd need to buy to recreate the look. For each missing piece, include a category, a short description, an importance level ("high", "medium", or "low"), a one-sentence reason it's needed, 1-2 concrete product examples with a name and approximate price range, a few search terms someone could use to shop for it, and a general suggestion of where to buy it. Only return JSON in the format: { "missingPieces": [{ "category": string, "description": string, "importance": "high" | "medium" | "low", "reason": string, "examples": [{ "name": string, "description": string, "where": string, "price": string }], "searchTerms": string[], "wheretoBuy": string }] }`
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: `Analyze this inspiration image and suggest missing pieces to complete similar outfits. Here are the items already in my closet: ${userClosetDescription}`
+              text: `Analyze this inspirational outfit image and recommend missing pieces that would help the user recreate similar looks. The user already has items with these style tags: ${userClosetTags.join(", ")}`
             },
             {
               type: "image_url",
@@ -210,11 +195,11 @@ export async function identifyMissingPieces(
                 url: `data:image/jpeg;base64,${base64Image}`
               }
             }
-          ],
-        },
+          ]
+        }
       ],
       response_format: { type: "json_object" },
-      max_tokens: 600,
+      max_tokens: 1500,
     });
 
     const result = parseOpenAIResponseContent(response.choices[0].message.content);
@@ -228,5 +213,125 @@ export async function identifyMissingPieces(
     }
 
     throw new Error("Failed to identify missing pieces");
+  }
+}
+
+/**
+ * Generate outfit combinations based on clothing items in user's closet
+ * @param clothingItems Array of clothing items
+ * @param filters Optional filters (style, season, theme)
+ * @returns Array of outfit combinations
+ */
+export async function generateOutfitCombinations(
+  clothingItems: any[],
+  filters?: {
+    style?: string;
+    season?: string;
+    themeId?: string;
+  }
+): Promise<any[]> {
+  if (!isOpenAIConfigured) {
+    throw new Error("OpenAI API key is required for outfit generation. Please configure it in the environment settings.");
+  }
+
+  try {
+    const tops = clothingItems.filter(item => item.category === 'tops');
+    const bottoms = clothingItems.filter(item => item.category === 'bottoms');
+    const shoes = clothingItems.filter(item => item.category === 'shoes');
+
+    // only send what the model needs
+    const itemDescriptions = clothingItems.map(item => ({
+      id: item.id,
+      category: item.category,
+      styleTags: item.styleTags || []
+    }));
+
+    const filterDescription = [];
+    if (filters?.style) filterDescription.push(`Style: ${filters.style}`);
+    if (filters?.season) filterDescription.push(`Season: ${filters.season}`);
+    if (filters?.themeId) filterDescription.push(`Theme: ${filters.themeId}`);
+
+    const prompt = `
+    Put together outfits from this closet. Each item has an id, a category and style tags:
+    ${JSON.stringify(itemDescriptions, null, 2)}
+
+    The closet has ${tops.length} tops, ${bottoms.length} bottoms and ${shoes.length} pairs of shoes.
+    ${filterDescription.length > 0 ? 'Filters:\n' + filterDescription.join('\n') : 'No filters.'}
+
+    Rules:
+    - each outfit has one top and one bottom
+    - add one pair of shoes if there are any
+    - follow the filters above
+    - don't repeat the exact same set of items
+    - make up to 8 outfits, fewer is fine if the closet is small
+
+    For each outfit return a name, a short description, the item ids as numbers, a style, an occasion and a season.
+    Respond with JSON only: { "outfits": [{ "name": string, "description": string, "items": number[], "style": string, "occasion": string, "season": string }] }
+    `;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "You are a stylist putting together outfits from someone's closet."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      response_format: { type: "json_object" },
+      max_tokens: 1500,
+    });
+
+    let data;
+    try {
+      data = JSON.parse(response.choices[0].message.content);
+      // sometimes the model returns a bare array
+      if (!data.outfits && Array.isArray(data)) {
+        data = { outfits: data };
+      }
+    } catch (e) {
+      console.error("Error parsing OpenAI response:", e);
+      return [];
+    }
+
+    const outfits = data.outfits || [];
+
+    // drop exact duplicates
+    const uniqueOutfits = [];
+    const seenCombinations = new Set();
+
+    for (const outfit of outfits) {
+      outfit.items = outfit.items.map((id: any) => typeof id === 'string' ? parseInt(id, 10) : id);
+      const signature = [...outfit.items].sort().join(',');
+      if (!seenCombinations.has(signature)) {
+        seenCombinations.add(signature);
+        uniqueOutfits.push(outfit);
+      }
+    }
+
+    uniqueOutfits.forEach(outfit => {
+      if (filters?.style) outfit.style = filters.style;
+      if (filters?.themeId) {
+        outfit.style = filters.themeId;
+        if (!outfit.name.toLowerCase().includes(filters.themeId.toLowerCase())) {
+          outfit.name = `${filters.themeId} ${outfit.name}`;
+        }
+      }
+      if (filters?.season) outfit.season = filters.season;
+    });
+
+    return uniqueOutfits;
+  } catch (error: any) {
+    console.error("Error generating outfit combinations:", error);
+
+    // Check if this is a quota or rate limit error
+    if (error.status === 429 || (error.error && error.error.type === 'insufficient_quota')) {
+      throw new Error("AI service quota exceeded. Please try again later or contact support to upgrade your plan.");
+    }
+
+    throw new Error("Failed to generate outfit combinations");
   }
 }

@@ -92,17 +92,17 @@ export async function getStyleMatching(inspirationId: number): Promise<StyleMatc
 
 // Get outfit combination suggestions based on closet items
 export async function getOutfitCombinations(options?: {
-  occasion?: string;
   style?: string;
   season?: string;
+  themeId?: string;
 }): Promise<OutfitCombination[]> {
   let url = '/api/outfits';
   
   if (options) {
     const params = new URLSearchParams();
-    if (options.occasion) params.append('occasion', options.occasion);
     if (options.style) params.append('style', options.style);
     if (options.season) params.append('season', options.season);
+    if (options.themeId) params.append('themeId', options.themeId);
     
     const queryString = params.toString();
     if (queryString) {
@@ -120,10 +120,20 @@ export async function shareOutfitToSocial(
   outfitId: string, 
   platform: 'instagram' | 'snapchat' | 'twitter' | 'facebook'
 ): Promise<{ shareUrl: string }> {
-  const res = await apiRequest("POST", `/api/outfits/${outfitId}/share`, {
-    platform
-  });
-  return res.json();
+  try {
+    const res = await apiRequest("POST", `/api/outfits/${outfitId}/share`, {
+      platform
+    });
+    
+    if (!res.ok) {
+      throw new Error(`Failed to share outfit: ${res.status} ${res.statusText}`);
+    }
+    
+    return res.json();
+  } catch (error) {
+    console.error("Error in shareOutfitToSocial:", error);
+    throw error;
+  }
 }
 
 // Get a specific outfit by ID

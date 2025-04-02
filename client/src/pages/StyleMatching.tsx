@@ -92,23 +92,27 @@ export default function StyleMatching() {
         ) : (
           <>
             {/* Match score */}
-            <div className="mb-8 bg-zinc-900 border border-zinc-800 p-6 rounded-lg">
-              <div className="flex justify-between items-center mb-2">
+            <div className="mb-8 bg-zinc-900 border border-zinc-800 p-6 rounded-lg hover-lift transition-all duration-300 hover:border-zinc-700 animate-fade-in">
+              <div className="flex justify-between items-center mb-3">
                 <h2 className="text-lg font-light">style match score</h2>
-                <div className="flex items-center">
-                  <Sparkles className="w-5 h-5 mr-2 text-yellow-400" />
+                <div className="flex items-center bg-zinc-800 px-3 py-1 rounded-full">
+                  <Sparkles className="w-5 h-5 mr-2 text-yellow-400 animate-pulse" />
                   <span className="text-lg font-medium">{matchingData?.matchScore || 0}%</span>
                 </div>
               </div>
               
-              <div className="h-3 bg-zinc-800 rounded-full overflow-hidden mb-4">
+              <div className="h-4 bg-zinc-800 rounded-full overflow-hidden mb-5 shadow-inner">
                 <div 
-                  className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-1000 ease-out"
+                  className="h-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-1500 ease-out relative"
                   style={{ width: `${scoreWidth}%` }}
-                ></div>
+                >
+                  <div className="absolute inset-0 bg-white/10 bg-opacity-15 overflow-hidden flex">
+                    <span className="w-10 h-full transform -skew-x-12 animate-shine"></span>
+                  </div>
+                </div>
               </div>
               
-              <p className="text-zinc-400 text-sm">{matchingData?.styleNotes}</p>
+              <p className="text-zinc-300 text-sm leading-relaxed">{matchingData?.styleNotes}</p>
             </div>
 
             {/* Matching items */}
@@ -117,19 +121,32 @@ export default function StyleMatching() {
             {matchingItems.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                 {matchingItems.map((item) => (
-                  <Card key={item.id} className="bg-zinc-900 border-zinc-800 overflow-hidden group">
+                  <Card 
+                    key={item.id} 
+                    className="bg-zinc-900 border-zinc-800 overflow-hidden group hover-lift animate-fade-in transition-all duration-300 hover:border-zinc-700"
+                  >
                     <div className="aspect-square relative overflow-hidden">
                       <img 
                         src={item.imageUrl} 
                         alt={item.category} 
-                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" 
+                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
                       />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                      <div className="absolute bottom-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                        <Badge className="bg-black/70 backdrop-blur-sm text-white shadow-lg">
+                          {item.category}
+                        </Badge>
+                      </div>
                     </div>
                     <CardContent className="p-4">
-                      <h3 className="text-zinc-300 mb-2">{item.category}</h3>
+                      <h3 className="text-zinc-300 mb-2 font-light">{item.category}</h3>
                       <div className="flex flex-wrap gap-2">
                         {item.styleTags.slice(0, 3).map((tag, index) => (
-                          <Badge key={index} variant="outline" className="border-zinc-700 text-zinc-400">
+                          <Badge 
+                            key={index} 
+                            variant="outline" 
+                            className="border-zinc-700 text-zinc-400 hover:bg-zinc-800 transition-colors duration-300"
+                          >
                             {tag}
                           </Badge>
                         ))}
@@ -161,20 +178,27 @@ export default function StyleMatching() {
             )}
 
             {/* Action buttons */}
-            <div className="mt-8 flex flex-col sm:flex-row gap-4">
+            <div className="mt-12 mb-6 flex flex-col sm:flex-row gap-4 animate-fade-in">
               <Button 
                 variant="outline" 
-                className="border-zinc-700" 
-                onClick={() => setLocation('/inspiration')}
+                className="border-zinc-700 hover:bg-zinc-800 hover:border-zinc-600 transition-all duration-300 group"
+                onClick={() => setLocation(`/inspiration/${inspirationId}/missing-pieces`)}
               >
-                <ChevronLeft className="mr-2 h-4 w-4" />
-                back to inspiration
+                <Tag className="mr-2 h-4 w-4 transition-transform duration-300 group-hover:scale-110" />
+                <span className="relative overflow-hidden">
+                  <span className="inline-block transition-transform duration-300 group-hover:translate-y-0">find missing pieces</span>
+                </span>
               </Button>
               
               {matchingItems.length > 0 && (
-                <Button onClick={() => setLocation('/outfit-ideas')}>
-                  <Sparkles className="mr-2 h-4 w-4" />
-                  create outfit
+                <Button 
+                  className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 transition-all duration-300 shadow-lg group hover:shadow-blue-900/20"
+                  onClick={() => setLocation('/outfit-ideas')}
+                >
+                  <Sparkles className="mr-2 h-4 w-4 transition-transform duration-300 group-hover:scale-110" />
+                  <span className="relative overflow-hidden">
+                    <span className="inline-block transition-transform duration-300 group-hover:translate-y-0">create outfit</span>
+                  </span>
                 </Button>
               )}
             </div>

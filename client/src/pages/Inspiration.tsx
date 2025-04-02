@@ -82,59 +82,66 @@ export default function Inspiration() {
           ))}
         </div>
       ) : inspirationImages && inspirationImages.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 ${
+          inspirationImages.length === 1 ? 'md:place-items-center md:grid-cols-1' : ''
+        }`}>
           {inspirationImages.map((image) => (
-            <Card key={image.id} className="bg-zinc-900 border-zinc-800 overflow-hidden">
-              <div className="relative h-60 bg-zinc-900 overflow-hidden flex justify-center items-center">
+            <Card 
+              key={image.id} 
+              className={`bg-zinc-900 border-zinc-800 overflow-hidden hover-lift animate-fade-in transition-all duration-300 hover:border-zinc-700 ${
+                inspirationImages.length === 1 ? 'max-w-md w-full mx-auto' : ''
+              }`}
+            >
+              <div className="relative h-60 bg-zinc-900 overflow-hidden flex justify-center items-center group">
                 <div className="w-full h-full flex items-center justify-center bg-black/20">
                   <img 
                     src={image.imageUrl} 
                     alt="Inspiration image" 
-                    className="max-w-full max-h-60 object-contain"
+                    className="max-w-full max-h-60 object-contain transition-transform duration-700 group-hover:scale-105"
                   />
                 </div>
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                 <div className="absolute top-2 right-2">
                   <Button 
                     size="icon" 
                     variant="ghost" 
-                    className="h-8 w-8 rounded-full bg-black/50 hover:bg-red-900/70 text-zinc-300 hover:text-white"
+                    className="h-8 w-8 rounded-full bg-black/50 hover:bg-red-900/70 text-zinc-300 hover:text-white transform transition-transform duration-300 hover:scale-110"
                     onClick={(e) => handleDelete(image.id, e)}
                   >
                     <Trash className="h-4 w-4" />
                   </Button>
                 </div>
-                <div className="absolute bottom-0 right-0 m-3 flex gap-2">
-                  {image.styleTags && image.styleTags.length > 0 && (
-                    <Link href={`/inspiration/${image.id}/style-matching`}>
-                      <Button size="sm" className="bg-black/50 backdrop-blur-sm hover:bg-black/70 text-white">
-                        <PlusCircle className="h-4 w-4 mr-1" />
-                        match with closet
-                      </Button>
-                    </Link>
-                  )}
-                  <Link href={`/inspiration/${image.id}/missing-pieces`}>
-                    <Button size="sm" className="bg-black/50 backdrop-blur-sm hover:bg-black/70 text-white">
-                      <Sparkles className="h-4 w-4 mr-1" />
-                      find missing pieces
+                <div className="absolute bottom-0 right-0 m-3 flex gap-2 transform translate-y-1 opacity-0 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
+                  <Link href={`/inspiration/${image.id}/style-matching`}>
+                    <Button 
+                      size="sm" 
+                      className="bg-black/70 backdrop-blur-sm hover:bg-black/90 text-white shadow-lg"
+                    >
+                      <PlusCircle className="h-4 w-4 mr-1" />
+                      match with closet
                     </Button>
                   </Link>
                 </div>
               </div>
               <CardContent className="py-4">
-                <h3 className="text-lg mb-3">inspiration #{image.id}</h3>
+                <h3 className="text-lg mb-3 font-light">inspiration #{image.id}</h3>
                 <div className="flex flex-wrap gap-2">
                   {image.styleTags && image.styleTags.length > 0 ? (
                     image.styleTags.map((tag, index) => (
                       <Badge 
                         key={index} 
-                        className="bg-zinc-800 hover:bg-zinc-700 text-zinc-400"
+                        className="bg-zinc-800 hover:bg-zinc-700 text-zinc-400 transition-colors duration-300"
                       >
                         {tag}
                       </Badge>
                     ))
                   ) : (
                     <Link href="/inspiration-upload">
-                      <Button size="sm" variant="outline" className="border-zinc-700 text-zinc-400">
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="border-zinc-700 text-zinc-400 hover:bg-zinc-800 transition-colors duration-300"
+                      >
                         <Camera className="h-3 w-3 mr-1" />
                         analyze for tags
                       </Button>

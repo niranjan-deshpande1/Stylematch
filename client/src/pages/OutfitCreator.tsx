@@ -5,28 +5,18 @@ import { useToast } from '@/hooks/use-toast';
 import { ClothingItem, OutfitCombination } from '@shared/schema';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardFooter, CardTitle, CardDescription } from '@/components/ui/card';
-import { ColorPalette, useColorPalette } from '@/components/ui/color-palette';
+import { StyleThemePalette, useStyleThemes } from '@/components/ui/style-theme-palette';
 import { SocialShareModal } from '@/components/ui/social-share-modal';
-import { 
-  Tags, 
-  Sparkles, 
-  Sun, 
-  Calendar, 
+import {
+  Tags,
+  Sparkles,
+  Sun,
+  Calendar,
   Flame,
-  Wine,
-  Briefcase,
-  ShoppingBag,
-  Utensils,
   Shirt,
-  Share2
+  Share2,
+  Palette
 } from 'lucide-react';
-
-const OCCASIONS = [
-  { id: 'casual', name: 'casual', icon: <ShoppingBag className="h-4 w-4" /> },
-  { id: 'work', name: 'work', icon: <Briefcase className="h-4 w-4" /> },
-  { id: 'dinner', name: 'dinner', icon: <Utensils className="h-4 w-4" /> },
-  { id: 'party', name: 'party', icon: <Wine className="h-4 w-4" /> },
-];
 
 const SEASONS = [
   { id: 'all-season', name: 'all season' },
@@ -48,27 +38,21 @@ const STYLES = [
 export default function OutfitCreator() {
   const { toast } = useToast();
   const [filters, setFilters] = useState({
-    occasion: '',
     season: '',
     style: '',
   });
   const [selectedOutfit, setSelectedOutfit] = useState<string | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
-  const { colors, selectedColor, setSelectedColor } = useColorPalette();
+  const { themes, selectedThemeId, setSelectedThemeId } = useStyleThemes();
 
-  // Get outfit combinations
+  // Get outfit combinations with theme preference
   const { data: outfits = [], isLoading: isLoadingOutfits } = useQuery({
-    queryKey: ['/api/outfits', filters],
-    queryFn: () => getOutfitCombinations(filters),
-    retry: false,
-    onError: (error) => {
-      console.error('Error fetching outfit combinations:', error);
-      toast({
-        title: 'error',
-        description: 'failed to get outfit combinations',
-        variant: 'destructive'
-      });
-    }
+    queryKey: ['/api/outfits', filters, selectedThemeId],
+    queryFn: () => getOutfitCombinations({
+      ...filters,
+      themeId: selectedThemeId || undefined
+    }),
+    retry: false
   } as any);
 
   // Get all clothing items for display
@@ -88,8 +72,62 @@ export default function OutfitCreator() {
 
   // Get clothing items for a specific outfit
   const getOutfitItems = (outfit: OutfitCombination): ClothingItem[] => {
-    return allClothingItems.filter(item => outfit.items.includes(item.id));
+    // Convert item ids to numbers if they are strings to ensure proper matching
+    const outfitItemIds = outfit.items.map(id =>
+      typeof id === 'string' ? parseInt(id, 10) : id
+    );
+
+    // Match items from the closet to the outfit's items
+    const matchedItems = allClothingItems.filter(item =>
+      outfitItemIds.includes(item.id)
+    );
+
+    return matchedItems;
   };
+
+  // Filter available themes based on closet content
+  const getAvailableThemes = () => {
+    // Always include neutral and monochrome as they work with any closet
+    const alwaysAvailableThemes = ['neutral', 'monochrome', 'dark'];
+
+    // Define theme keyword associations
+    const themeKeywords: Record<string, string[]> = {
+      'pastel': ['pastel', 'light', 'soft', 'gentle', 'baby blue', 'light pink', 'lavender', 'mint'],
+      'vibrant': ['vibrant', 'bright', 'bold', 'colorful', 'neon', 'saturated', 'vivid'],
+      'earthy': ['earthy', 'natural', 'earth tone', 'brown', 'beige', 'olive', 'terracotta', 'khaki'],
+      'cool': ['cool', 'blue', 'teal', 'green', 'turquoise', 'navy', 'aqua', 'ice'],
+      'warm': ['warm', 'red', 'orange', 'yellow', 'amber', 'gold', 'burgundy', 'rust']
+    };
+
+    // Extract all tags from closet items
+    const allTags = allClothingItems.flatMap(item => item.styleTags || []);
+
+    // Determine which themes match the closet content
+    const matchingThemeIds = Object.entries(themeKeywords).reduce((acc, [themeId, keywords]) => {
+      const hasMatchingItems = keywords.some(keyword =>
+        allTags.some(tag => tag.toLowerCase().includes(keyword.toLowerCase()))
+      );
+
+      if (hasMatchingItems) {
+        acc.push(themeId);
+      }
+
+      return acc;
+    }, [...alwaysAvailableThemes]);
+
+    // Return filtered themes
+    return themes.filter(theme => matchingThemeIds.includes(theme.id));
+  };
+
+  // Get the filtered themes based on closet content
+  const availableThemes = getAvailableThemes();
+
+  // Clear any selected theme that's not available
+  React.useEffect(() => {
+    if (selectedThemeId && !availableThemes.some(theme => theme.id === selectedThemeId)) {
+      setSelectedThemeId(undefined);
+    }
+  }, [selectedThemeId, availableThemes]);
 
   const handleFilterChange = (key: keyof typeof filters, value: string) => {
     setFilters(prev => ({
@@ -108,38 +146,16 @@ export default function OutfitCreator() {
       <div className="max-w-5xl mx-auto">
         <h1 className="text-3xl mb-2 font-light">outfit ideas</h1>
         <p className="text-zinc-400 mb-8">create perfect combinations from your closet items</p>
-        
+
         {/* Filters */}
         <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-lg mb-8">
           <h2 className="flex items-center text-zinc-300 mb-4 gap-2">
             <Tags className="h-5 w-5" />
             <span>filters</span>
           </h2>
-          
+
           <div className="space-y-6">
-            {/* Occasion filter */}
-            <div>
-              <h3 className="text-sm text-zinc-400 mb-3">occasion</h3>
-              <div className="flex flex-wrap gap-2">
-                {OCCASIONS.map(occasion => (
-                  <Button
-                    key={occasion.id}
-                    variant={filters.occasion === occasion.id ? "default" : "outline"}
-                    size="sm"
-                    className={
-                      filters.occasion === occasion.id
-                        ? "hover:bg-zinc-700"
-                        : "border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
-                    }
-                    onClick={() => handleFilterChange('occasion', occasion.id)}
-                  >
-                    {occasion.icon}
-                    <span className="ml-2">{occasion.name}</span>
-                  </Button>
-                ))}
-              </div>
-            </div>
-            
+
             {/* Season filter */}
             <div>
               <h3 className="text-sm text-zinc-400 mb-3">season</h3>
@@ -161,7 +177,7 @@ export default function OutfitCreator() {
                 ))}
               </div>
             </div>
-            
+
             {/* Style filter */}
             <div>
               <h3 className="text-sm text-zinc-400 mb-3">style</h3>
@@ -183,36 +199,41 @@ export default function OutfitCreator() {
                 ))}
               </div>
             </div>
-            
-            {/* Color preferences */}
+
+            {/* Style theme preferences */}
             <div>
-              <h3 className="text-sm text-zinc-400 mb-3">color preference</h3>
-              <ColorPalette
-                colors={colors}
-                selectedColor={selectedColor}
-                onSelectColor={setSelectedColor}
-                className="mb-2"
+              <h3 className="text-sm text-zinc-400 mb-3">style theme</h3>
+              <StyleThemePalette
+                themes={availableThemes}
+                selectedThemeId={selectedThemeId}
+                onSelectTheme={setSelectedThemeId}
+                className="mb-4"
               />
-              <p className="text-xs text-zinc-500 italic">
-                select colors to influence your outfit suggestions
-              </p>
+              <div className="text-center">
+                <p className="text-xs text-zinc-500 italic">
+                  select a style theme to influence your outfit suggestions
+                </p>
+                <p className="text-xs text-zinc-500 mt-1">
+                  showing themes based on your closet items
+                </p>
+              </div>
             </div>
           </div>
         </div>
-        
+
         {/* Results */}
         <h2 className="text-2xl mb-4 font-light flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-yellow-400" />
           <span>suggested outfits</span>
         </h2>
-        
+
         {isLoading ? (
           <div className="flex justify-center items-center h-64">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
           </div>
-        ) : outfits.length > 0 ? (
+        ) : (outfits as OutfitCombination[]).length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {outfits.map((outfit) => {
+            {(outfits as OutfitCombination[]).map((outfit: OutfitCombination) => {
               const outfitItems = getOutfitItems(outfit);
               return (
                 <Card key={outfit.id} className="bg-zinc-900 border-zinc-800 overflow-hidden hover:border-zinc-700 transition-colors">
@@ -220,20 +241,26 @@ export default function OutfitCreator() {
                     <CardTitle className="text-lg font-normal">{outfit.name}</CardTitle>
                     <CardDescription>{outfit.description}</CardDescription>
                   </CardHeader>
-                  
+
                   <CardContent>
-                    <div className="flex gap-3 mb-4 overflow-x-auto pb-2">
-                      {outfitItems.map((item) => (
-                        <div key={item.id} className="w-20 h-20 flex-shrink-0 overflow-hidden rounded-md bg-zinc-800">
-                          <img 
-                            src={item.imageUrl} 
-                            alt={item.category} 
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                    
+                    {outfitItems.length > 0 ? (
+                      <div className="flex gap-3 mb-4 overflow-x-auto pb-2">
+                        {outfitItems.map((item) => (
+                          <div key={item.id} className="w-20 h-20 flex-shrink-0 overflow-hidden rounded-md bg-zinc-800">
+                            <img
+                              src={item.imageUrl}
+                              alt={item.category}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center h-20 bg-zinc-800 rounded-md mb-4">
+                        <p className="text-sm text-zinc-500">Item images not available</p>
+                      </div>
+                    )}
+
                     <div className="flex flex-wrap gap-2">
                       {outfit.style && (
                         <div className="px-2 py-1 text-xs rounded-full bg-zinc-800 text-zinc-400 flex items-center">
@@ -255,11 +282,11 @@ export default function OutfitCreator() {
                       )}
                     </div>
                   </CardContent>
-                  
+
                   <CardFooter className="border-t border-zinc-800 pt-4 flex flex-wrap gap-2">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
+                    <Button
+                      variant="outline"
+                      size="sm"
                       className="flex-1 border-zinc-700"
                       onClick={() => {
                         toast({
@@ -270,8 +297,8 @@ export default function OutfitCreator() {
                     >
                       save outfit
                     </Button>
-                    <Button 
-                      size="sm" 
+                    <Button
+                      size="sm"
                       className="flex-1"
                       onClick={() => handleShareOutfit(outfit)}
                     >
@@ -290,13 +317,13 @@ export default function OutfitCreator() {
             <p className="text-zinc-500 mb-6 max-w-md mx-auto">
               Try changing your filters or adding more items to your closet.
             </p>
-            <Button onClick={() => setFilters({ occasion: '', season: '', style: '' })}>
+            <Button onClick={() => setFilters({ season: '', style: '' })}>
               clear filters
             </Button>
           </div>
         )}
       </div>
-      
+
       {/* Social Share Modal */}
       {selectedOutfit && (
         <SocialShareModal
@@ -305,7 +332,7 @@ export default function OutfitCreator() {
           outfitId={selectedOutfit}
           outfitName={selectedOutfitData?.name || "custom"}
           outfitItems={
-            selectedOutfitData 
+            selectedOutfitData
               ? getOutfitItems(selectedOutfitData)
               : []
           }

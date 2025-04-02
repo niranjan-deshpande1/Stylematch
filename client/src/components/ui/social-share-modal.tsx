@@ -115,17 +115,31 @@ export function SocialShareModal({
   const handleShare = async (platform: string) => {
     try {
       setIsLoading(true);
-      const result = await shareOutfitToSocial(outfitId, platform as any);
 
-      window.open(result.shareUrl, "_blank");
+      // Map the platform ID to the expected platform name
+      const platformMap: Record<string, 'instagram' | 'snapchat' | 'twitter' | 'facebook'> = {
+        instagram: 'instagram',
+        snapchat: 'snapchat',
+        twitter: 'twitter',
+        facebook: 'facebook'
+      };
 
-      toast({
-        title: "shared!",
-        description: `your outfit has been shared to ${platform}`,
-      });
+      const result = await shareOutfitToSocial(outfitId, platformMap[platform] as any);
 
-      setIsLoading(false);
-      onOpenChange(false); // Close modal after sharing
+      // Open the share URL in a new tab/window
+      if (result && result.shareUrl) {
+        window.open(result.shareUrl, "_blank");
+
+        toast({
+          title: "shared!",
+          description: `your outfit has been shared to ${platform}`,
+        });
+
+        setIsLoading(false);
+        onOpenChange(false); // Close modal after sharing
+      } else {
+        throw new Error("No share URL returned");
+      }
     } catch (error) {
       console.error("Error sharing:", error);
       toast({

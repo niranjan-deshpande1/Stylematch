@@ -1,10 +1,15 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request as ExpressRequest, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
-import { analyzeClothingImage, analyzeOutfitImage, identifyMissingPieces } from "./utils/openai";
+import { analyzeClothingImage, analyzeOutfitImage, identifyMissingPieces, generateOutfitCombinations } from "./utils/openai";
+
+// Define a new Request type that includes multer's file property
+interface Request extends ExpressRequest {
+  file?: Express.Multer.File;
+}
 import {
   clothingCategories,
   StyleTagsResponse,
@@ -356,55 +361,94 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Get filter parameters
       const style = req.query.style as string;
-      const occasion = req.query.occasion as string;
       const season = req.query.season as string;
+      const themeId = req.query.themeId as string;
 
-      // Get all clothing items
+      // Get all clothing items from the storage
       const closetItems = await storage.getClothingItems();
+      if (closetItems.length === 0) {
+        return res.json({ outfits: [] });
+      }
 
-      if (closetItems.length < 2) {
-        return res.status(400).json({
-          message: 'Not enough items in your closet to create outfits. Add at least one top and one bottom.'
+      const tops = closetItems.filter(item => item.category === 'tops');
+      const bottoms = closetItems.filter(item => item.category === 'bottoms');
+      const shoes = closetItems.filter(item => item.category === 'shoes');
+
+      // Check if we have the minimum required items to create outfits
+      if (tops.length === 0 || bottoms.length === 0) {
+        return res.json({
+          outfits: [],
+          message: "Your closet needs at least one top and one bottom to create outfits."
         });
       }
 
-      // pair each top with each bottom, then add shoes and an accessory if there are any
-      const tops = closetItems.filter(item => item.category === 'tops');
-      const bottoms = closetItems.filter(item => item.category === 'bottoms');
-      const shoes = closetItems.find(item => item.category === 'shoes');
-      const accessory = closetItems.find(item => item.category === 'accessories');
+      // Create filters object for outfit generation
+      const filters: any = {};
+      if (style) filters.style = style;
+      if (season) filters.season = season;
+      if (themeId) filters.themeId = themeId;
 
-      const outfits: OutfitCombination[] = [];
-      for (const top of tops) {
-        for (const bottom of bottoms) {
-          const items = [top.id, bottom.id];
-          if (shoes) items.push(shoes.id);
-          if (accessory) items.push(accessory.id);
-          outfits.push({
-            id: `outfit-${top.id}-${bottom.id}`,
-            name: `${top.styleTags?.[0] ?? 'everyday'} look`,
-            description: 'a top and bottom from your closet',
-            items,
-            style: 'casual',
-            occasion: 'everyday',
-            season: 'all-season'
-          });
+      // Use the OpenAI utility to generate outfits
+      const outfits = await generateOutfitCombinations(closetItems, filters);
+
+      // Local validation to enforce outfit composition rules
+      const validatedOutfits = outfits.filter((outfit: any) => {
+        // Convert all item IDs to numbers for consistency
+        const itemIds = outfit.items.map((id: any) => typeof id === 'string' ? parseInt(id, 10) : id);
+
+        // Check if outfit has exactly one top
+        const hasTop = itemIds.some(id => tops.some(top => top.id === id));
+
+        // Check if outfit has exactly one bottom
+        const hasBottom = itemIds.some(id => bottoms.some(bottom => bottom.id === id));
+
+        // Check if outfit has exactly one shoe (required if shoes are available)
+        const hasShoe = shoes.length > 0 ?
+          itemIds.some(id => shoes.some(shoe => shoe.id === id)) :
+          true; // Skip shoe check if no shoes in closet
+
+        // Return true only if outfit meets all requirements
+        return hasTop && hasBottom && hasShoe;
+      });
+
+      if (validatedOutfits.length === 0) {
+        return res.json({
+          outfits: [],
+          message: "No valid outfit combinations could be created. Please try a different filter or add more items to your closet."
+        });
+      }
+
+      // Normalize outfits for consistent item ID comparison
+      const normalizedOutfits = validatedOutfits.map((outfit: any) => ({
+        ...outfit,
+        // Ensure items are all strings for consistent comparison
+        items: outfit.items.map((id: any) => String(id))
+      }));
+
+      // Remove duplicates
+      const outfitSignatures = new Set<string>();
+      const uniqueOutfits: any[] = [];
+
+      normalizedOutfits.forEach(outfit => {
+        // Create a key that's the sorted list of item IDs
+        const signature = [...outfit.items].sort().join(',');
+
+        if (!outfitSignatures.has(signature)) {
+          outfitSignatures.add(signature);
+          uniqueOutfits.push(outfit);
         }
-      }
+      });
 
-      // Filter outfits based on query parameters
-      let filteredOutfits = outfits;
-      if (style) {
-        filteredOutfits = filteredOutfits.filter(outfit => outfit.style.includes(style));
-      }
-      if (occasion) {
-        filteredOutfits = filteredOutfits.filter(outfit => outfit.occasion.includes(occasion));
-      }
-      if (season) {
-        filteredOutfits = filteredOutfits.filter(outfit => !outfit.season || outfit.season.includes(season));
-      }
+      // Ensure all outfits have unique IDs
+      const outfitsWithIds = uniqueOutfits.map((outfit, index) => ({
+        ...outfit,
+        id: `outfit-${index + 1}`
+      }));
 
-      res.json({ outfits: filteredOutfits });
+      const MAX_OUTFITS = 4;
+      const limitedOutfits = outfitsWithIds.slice(0, MAX_OUTFITS);
+
+      res.json({ outfits: limitedOutfits });
     } catch (error) {
       console.error('Error generating outfit combinations:', error);
       res.status(500).json({ message: 'Failed to generate outfit combinations' });

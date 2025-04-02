@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'wouter';
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import logoPath from "@assets/logo.png";
 
 export default function Header() {
   const [location] = useLocation();
@@ -9,9 +10,12 @@ export default function Header() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex justify-between items-center">
         <div className="flex items-center">
           <Link href="/">
-            <span className="text-2xl font-medium lowercase tracking-tight">
-              <span className="gradient-text">style</span>match
-            </span>
+            <div className="flex items-center">
+              <img src={logoPath} alt="StyleMatch logo" className="h-10 w-10 mr-2" />
+              <span className="text-2xl font-medium lowercase tracking-tight">
+                <span className="gradient-text">style</span>match
+              </span>
+            </div>
           </Link>
         </div>
         <nav className="hidden md:flex items-center space-x-8">
