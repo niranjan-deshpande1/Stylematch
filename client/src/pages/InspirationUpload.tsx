@@ -96,31 +96,14 @@ export default function InspirationUpload() {
           {/* Upload Area */}
           <div className="flex flex-col">
             <FileInput
-              onFileSelected={handleFileSelected}
+              onFileSelected={(file) => {
+                handleFileSelected(file);
+                uploadMutation.mutate(file);
+              }}
               className="h-80 dark-card"
               icon={<i className="fas fa-cloud-upload-alt text-3xl text-zinc-500 mb-2"></i>}
-              label="drop your inspiration photo here"
+              label={uploadMutation.isPending ? "uploading..." : "drop your inspiration photo here"}
             />
-            <div className="mt-4">
-              <Button 
-                className="w-full py-6 bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700"
-                onClick={handleUpload}
-                disabled={!selectedFile || uploadMutation.isPending}
-              >
-                {uploadMutation.isPending ? (
-                  <>
-                    <span className="animate-spin mr-2">
-                      <i className="fas fa-spinner"></i>
-                    </span>
-                    uploading...
-                  </>
-                ) : (
-                  <>
-                    <i className="fas fa-cloud-upload-alt mr-2"></i> upload image
-                  </>
-                )}
-              </Button>
-            </div>
             {uploadedImage && (
               <div className="mt-4">
                 <Button 

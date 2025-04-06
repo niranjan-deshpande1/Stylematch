@@ -9,7 +9,6 @@ import { StyleThemePalette, useStyleThemes } from '@/components/ui/style-theme-p
 import { SocialShareModal } from '@/components/ui/social-share-modal';
 import {
   Tags,
-  Sparkles,
   Sun,
   Calendar,
   Flame,
@@ -223,9 +222,8 @@ export default function OutfitCreator() {
         </div>
 
         {/* Results */}
-        <h2 className="text-2xl mb-4 font-light flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-yellow-400" />
-          <span>suggested outfits</span>
+        <h2 className="text-2xl mb-4 font-light">
+          suggested outfits
         </h2>
 
         {isLoading ? (

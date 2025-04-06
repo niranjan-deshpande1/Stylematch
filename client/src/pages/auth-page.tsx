@@ -3,14 +3,107 @@ import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FcGoogle } from "react-icons/fc";
-import { Loader2 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Loader2, User, Mail, Lock } from "lucide-react";
 import { setGuestMode } from "@/lib/api";
+import { insertUserSchema } from "@shared/schema";
+
+// Login validation schema
+const loginSchema = z.object({
+  username: z.string().min(1, "Email or username is required"),
+  password: z.string().min(1, "Password is required"),
+});
+
+// Register validation schema with email validation
+const registerSchema = insertUserSchema.extend({
+  email: z.string().email("Please enter a valid email address"),
+  username: z.string().min(3, "Username must be at least 3 characters"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+  confirmPassword: z.string(),
+}).refine(data => data.password === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
+});
+
+type LoginFormValues = z.infer<typeof loginSchema>;
+type RegisterFormValues = z.infer<typeof registerSchema>;
 
 export default function AuthPage() {
-  const [isLoading, setIsLoading] = useState(false);
-  const { isAuthenticated } = useAuth();
+  // Check if we should show register form based on localStorage
+  const initialTab = (): "login" | "register" => {
+    if (typeof window !== 'undefined') {
+      const showRegister = localStorage.getItem("showRegisterForm");
+      if (showRegister === "true") {
+        // Clear the flag so it doesn't persist across page reloads
+        localStorage.removeItem("showRegisterForm");
+        return "register";
+      }
+    }
+    return "login";
+  };
+
+  const [activeTab, setActiveTab] = useState<"login" | "register">(initialTab());
+  const { isAuthenticated, loginMutation, registerMutation } = useAuth();
   const [location, navigate] = useLocation();
+
+  // Handle form for login
+  const loginForm = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      username: "",
+      password: "",
+    },
+  });
+
+  // Handle form for registration
+  const registerForm = useForm<RegisterFormValues>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      email: "",
+      username: "",
+      password: "",
+      confirmPassword: "",
+    },
+  });
+
+  // Submit login form
+  const onLoginSubmit = (values: LoginFormValues) => {
+    loginMutation.mutate(values, {
+      onSuccess: () => {
+        const redirectPath = localStorage.getItem("redirectAfterAuth") || "/";
+        navigate(redirectPath);
+        localStorage.removeItem("redirectAfterAuth");
+      }
+    });
+  };
+
+  // Submit registration form
+  const onRegisterSubmit = (values: RegisterFormValues) => {
+    // Remove the confirmPassword field as it's not part of the API
+    const { confirmPassword, ...registrationData } = values;
+    
+    registerMutation.mutate(registrationData, {
+      onSuccess: () => {
+        const redirectPath = localStorage.getItem("redirectAfterAuth") || "/";
+        navigate(redirectPath);
+        localStorage.removeItem("redirectAfterAuth");
+      }
+    });
+  };
+
+  // Continue as guest
+  const handleGuestMode = () => {
+    setGuestMode(true);
+    const redirectPath = localStorage.getItem("redirectAfterAuth") || "/";
+    navigate(redirectPath);
+    localStorage.removeItem("redirectAfterAuth");
+  };
 
   // Check if user is already logged in and redirect
   if (isAuthenticated) {
@@ -33,39 +126,171 @@ export default function AuthPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-xl">
-                sign in
+                {activeTab === "login" ? "sign in" : "create account"}
               </CardTitle>
               <CardDescription>
-                choose how you'd like to access your account
+                {activeTab === "login" 
+                  ? "enter your credentials to access your account" 
+                  : "fill in your details to create a new account"}
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <Button
-                variant="outline"
-                className="w-full"
-                onClick={() => {
-                  setIsLoading(true);
-                  // Save the return URL before redirecting
-                  const currentPath = window.location.pathname;
-                  const redirectPath = currentPath !== "/auth" ? currentPath : "/";
-                  localStorage.setItem("redirectAfterAuth", redirectPath);
-                  
-                  // Redirect to Google authentication
-                  window.location.href = "/api/auth/google";
-                }}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> connecting to google
-                  </>
-                ) : (
-                  <>
-                    <FcGoogle className="mr-2 h-5 w-5" />
-                    continue with google
-                  </>
-                )}
-              </Button>
+            <CardContent className="space-y-4">
+              <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "login" | "register")}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="login">Login</TabsTrigger>
+                  <TabsTrigger value="register">Register</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="login" className="space-y-4 mt-4">
+                  <Form {...loginForm}>
+                    <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4">
+                      <FormField
+                        control={loginForm.control}
+                        name="username"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Email or Username</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <span className="absolute left-3 top-2.5 text-muted-foreground">
+                                  <Mail className="h-4 w-4" />
+                                </span>
+                                <Input placeholder="email@example.com" className="pl-10" {...field} />
+                              </div>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <FormField
+                        control={loginForm.control}
+                        name="password"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Password</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <span className="absolute left-3 top-2.5 text-muted-foreground">
+                                  <Lock className="h-4 w-4" />
+                                </span>
+                                <Input type="password" className="pl-10" {...field} />
+                              </div>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <Button 
+                        type="submit" 
+                        className="w-full" 
+                        disabled={loginMutation.isPending}
+                      >
+                        {loginMutation.isPending ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Signing in...
+                          </>
+                        ) : "Sign in"}
+                      </Button>
+                    </form>
+                  </Form>
+                </TabsContent>
+                
+                <TabsContent value="register" className="space-y-4 mt-4">
+                  <Form {...registerForm}>
+                    <form onSubmit={registerForm.handleSubmit(onRegisterSubmit)} className="space-y-4">
+                      <FormField
+                        control={registerForm.control}
+                        name="email"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Email</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <span className="absolute left-3 top-2.5 text-muted-foreground">
+                                  <Mail className="h-4 w-4" />
+                                </span>
+                                <Input placeholder="email@example.com" className="pl-10" {...field} />
+                              </div>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <FormField
+                        control={registerForm.control}
+                        name="username"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Username</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <span className="absolute left-3 top-2.5 text-muted-foreground">
+                                  <User className="h-4 w-4" />
+                                </span>
+                                <Input className="pl-10" {...field} />
+                              </div>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <FormField
+                        control={registerForm.control}
+                        name="password"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Password</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <span className="absolute left-3 top-2.5 text-muted-foreground">
+                                  <Lock className="h-4 w-4" />
+                                </span>
+                                <Input type="password" className="pl-10" {...field} />
+                              </div>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <FormField
+                        control={registerForm.control}
+                        name="confirmPassword"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Confirm Password</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <span className="absolute left-3 top-2.5 text-muted-foreground">
+                                  <Lock className="h-4 w-4" />
+                                </span>
+                                <Input type="password" className="pl-10" {...field} />
+                              </div>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      
+                      <Button 
+                        type="submit" 
+                        className="w-full" 
+                        disabled={registerMutation.isPending}
+                      >
+                        {registerMutation.isPending ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating account...
+                          </>
+                        ) : "Create account"}
+                      </Button>
+                    </form>
+                  </Form>
+                </TabsContent>
+              </Tabs>
               
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
@@ -79,15 +304,7 @@ export default function AuthPage() {
               <Button
                 variant="ghost"
                 className="w-full"
-                onClick={() => {
-                  // Enable guest mode
-                  setGuestMode(true);
-                  
-                  // Redirect to the originally intended URL or home
-                  const redirectPath = localStorage.getItem("redirectAfterAuth") || "/";
-                  navigate(redirectPath);
-                  localStorage.removeItem("redirectAfterAuth");
-                }}
+                onClick={handleGuestMode}
               >
                 continue as guest
               </Button>

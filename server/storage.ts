@@ -1,44 +1,41 @@
-import { 
+import {
   users, type User, type InsertUser,
   inspirationImages, type InspirationImage, type InsertInspirationImage,
   clothingItems, type ClothingItem, type InsertClothingItem
 } from "@shared/schema";
 import session from "express-session";
-import connectPgSimple from "connect-pg-simple";
-import pg from "pg";
-const { Pool } = pg;
+import memorystore from "memorystore";
 
-// Create a PostgreSQL pool for session storage
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+// Import PostgreSQL storage implementation
+import { PostgresStorage } from './db-storage';
 
-// Create PostgreSQL session store
-const PostgresSessionStore = connectPgSimple(session);
+// Create a more reliable memory-based session store
+// This is better than the default MemoryStore for production
+const MemoryStore = memorystore(session);
 
 // Interface for storage operations
 export interface IStorage {
   // Session store for authentication
   sessionStore: session.Store;
-  
+
   // User methods
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  findOrCreateGoogleUser(profile: any): Promise<User>;
 
   // Inspiration image methods
-  getInspirationImages(): Promise<InspirationImage[]>;
-  getInspirationImage(id: number): Promise<InspirationImage | undefined>;
+  getInspirationImages(userId?: number): Promise<InspirationImage[]>;
+  getInspirationImage(id: number, userId?: number): Promise<InspirationImage | undefined>;
   createInspirationImage(image: InsertInspirationImage): Promise<InspirationImage>;
   updateInspirationImageTags(id: number, tags: string[]): Promise<InspirationImage | undefined>;
   updateInspirationImageSaved(id: number, isSaved: boolean): Promise<InspirationImage | undefined>;
   deleteInspirationImage(id: number): Promise<boolean>;
-  
+
   // Clothing item methods
-  getClothingItems(): Promise<ClothingItem[]>;
-  getClothingItemsByCategory(category: string): Promise<ClothingItem[]>;
-  getClothingItem(id: number): Promise<ClothingItem | undefined>;
+  getClothingItems(userId?: number): Promise<ClothingItem[]>;
+  getClothingItemsByCategory(category: string, userId?: number): Promise<ClothingItem[]>;
+  getClothingItem(id: number, userId?: number): Promise<ClothingItem | undefined>;
   createClothingItem(item: InsertClothingItem): Promise<ClothingItem>;
   updateClothingItemTags(id: number, tags: string[]): Promise<ClothingItem | undefined>;
   deleteClothingItem(id: number): Promise<boolean>;
@@ -61,11 +58,10 @@ export class MemStorage implements IStorage {
     this.userCurrentId = 1;
     this.inspirationImageCurrentId = 1;
     this.clothingItemCurrentId = 1;
-    
-    // Create the PostgreSQL session store
-    this.sessionStore = new PostgresSessionStore({
-      pool,
-      createTableIfMissing: true,
+
+    // Create an memory store
+    this.sessionStore = new MemoryStore({
+      checkPeriod: 86400000 // Prune expired entries every 24h
     });
   }
 
@@ -80,6 +76,12 @@ export class MemStorage implements IStorage {
     );
   }
 
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(
+      (user) => user.email === email,
+    );
+  }
+
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = this.userCurrentId++;
     const user: User = { ...insertUser, id };
@@ -87,33 +89,27 @@ export class MemStorage implements IStorage {
     return user;
   }
 
-  async findOrCreateGoogleUser(profile: any): Promise<User> {
-    // Look for an existing user with this Google ID as username
-    const googleId = profile.id;
-    const existingUser = await this.getUserByUsername(googleId);
-    
-    if (existingUser) {
-      return existingUser;
-    }
-    
-    // Create a new user
-    const newUser: InsertUser = {
-      username: googleId,
-      // Use a random password for Google users since we won't be using it
-      password: `google_${Math.random().toString(36).substring(2)}`,
-    };
-    
-    return this.createUser(newUser);
-  }
-
   // Inspiration image methods
-  async getInspirationImages(): Promise<InspirationImage[]> {
-    return Array.from(this.inspirationImages.values())
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  async getInspirationImages(userId?: number): Promise<InspirationImage[]> {
+    let images = Array.from(this.inspirationImages.values());
+
+    // Filter by user ID if specified
+    if (userId !== undefined) {
+      images = images.filter(image => image.userId === userId);
+    }
+
+    return images.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
-  async getInspirationImage(id: number): Promise<InspirationImage | undefined> {
-    return this.inspirationImages.get(id);
+  async getInspirationImage(id: number, userId?: number): Promise<InspirationImage | undefined> {
+    const image = this.inspirationImages.get(id);
+
+    // If userId is provided, check if the image belongs to that user
+    if (image && userId !== undefined && image.userId !== userId) {
+      return undefined; // Return undefined if image doesn't belong to the user
+    }
+
+    return image;
   }
 
   async createInspirationImage(image: InsertInspirationImage): Promise<InspirationImage> {
@@ -133,7 +129,7 @@ export class MemStorage implements IStorage {
   async updateInspirationImageTags(id: number, tags: string[]): Promise<InspirationImage | undefined> {
     const image = this.inspirationImages.get(id);
     if (!image) return undefined;
-    
+
     const updatedImage = { ...image, styleTags: tags };
     this.inspirationImages.set(id, updatedImage);
     return updatedImage;
@@ -142,30 +138,49 @@ export class MemStorage implements IStorage {
   async updateInspirationImageSaved(id: number, isSaved: boolean): Promise<InspirationImage | undefined> {
     const image = this.inspirationImages.get(id);
     if (!image) return undefined;
-    
+
     const updatedImage = { ...image, isSaved };
     this.inspirationImages.set(id, updatedImage);
     return updatedImage;
   }
-  
+
   async deleteInspirationImage(id: number): Promise<boolean> {
     return this.inspirationImages.delete(id);
   }
 
   // Clothing item methods
-  async getClothingItems(): Promise<ClothingItem[]> {
-    return Array.from(this.clothingItems.values())
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  async getClothingItems(userId?: number): Promise<ClothingItem[]> {
+    let items = Array.from(this.clothingItems.values());
+
+    // Filter by user ID if specified
+    if (userId !== undefined) {
+      items = items.filter(item => item.userId === userId);
+    }
+
+    return items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
-  async getClothingItemsByCategory(category: string): Promise<ClothingItem[]> {
-    return Array.from(this.clothingItems.values())
-      .filter(item => item.category === category)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  async getClothingItemsByCategory(category: string, userId?: number): Promise<ClothingItem[]> {
+    let items = Array.from(this.clothingItems.values())
+      .filter(item => item.category === category);
+
+    // Filter by user ID if specified
+    if (userId !== undefined) {
+      items = items.filter(item => item.userId === userId);
+    }
+
+    return items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
-  async getClothingItem(id: number): Promise<ClothingItem | undefined> {
-    return this.clothingItems.get(id);
+  async getClothingItem(id: number, userId?: number): Promise<ClothingItem | undefined> {
+    const item = this.clothingItems.get(id);
+
+    // If userId is provided, check if the item belongs to that user
+    if (item && userId !== undefined && item.userId !== userId) {
+      return undefined; // Return undefined if item doesn't belong to the user
+    }
+
+    return item;
   }
 
   async createClothingItem(item: InsertClothingItem): Promise<ClothingItem> {
@@ -185,7 +200,7 @@ export class MemStorage implements IStorage {
   async updateClothingItemTags(id: number, tags: string[]): Promise<ClothingItem | undefined> {
     const item = this.clothingItems.get(id);
     if (!item) return undefined;
-    
+
     const updatedItem = { ...item, styleTags: tags };
     this.clothingItems.set(id, updatedItem);
     return updatedItem;
@@ -196,4 +211,26 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+// We will use PostgreSQL storage for persistence, or fallback to memory storage
+// This handles both privacy and cross-device compatibility concerns
+let storageImplementation: IStorage;
+
+try {
+  // Check if we have a valid DATABASE_URL environment variable
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is not set. Using memory storage instead.');
+  }
+
+  // Try to use PostgreSQL storage first
+  storageImplementation = new PostgresStorage();
+} catch (error) {
+  // Fallback to memory storage if PostgreSQL fails
+  console.warn('Failed to initialize PostgreSQL storage, falling back to memory storage:', error);
+  storageImplementation = new MemStorage();
+
+  // Print warning to make it clear we're using in-memory storage
+  console.warn('USING IN-MEMORY STORAGE - DATA WILL BE LOST ON RESTART');
+  console.warn('To fix this issue, please set up a valid PostgreSQL database.');
+}
+
+export const storage = storageImplementation;

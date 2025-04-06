@@ -43,8 +43,7 @@ const saveImage = async (buffer: Buffer, prefix: string): Promise<string> => {
 };
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Set up authentication
-  setupAuth(app);
+  // Authentication is already set up in server/index.ts
 
   // Serve uploaded images
   app.get('/api/images/:filename', (req, res) => {
@@ -54,9 +53,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get all inspiration images
-  app.get('/api/inspiration', async (_req, res) => {
+  app.get('/api/inspiration', async (req, res) => {
     try {
-      const images = await storage.getInspirationImages();
+      const userId = getUserId(req);
+
+      // Return empty result if no user ID is available
+      if (userId === null) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      // Get images filtered by user ID
+      const images = await storage.getInspirationImages(userId);
       res.json(images);
     } catch (error) {
       res.status(500).json({ message: 'Failed to fetch inspiration images' });
@@ -65,13 +72,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Helper to get user ID from request
   const getUserId = (req: Request): number | null => {
-    // Check if the user is logged in or if they're in guest mode
+    // Check if the user is logged in
     if (req.user?.id) {
+      // Authenticated user, return their actual ID
       return req.user.id;
     } else if (req.headers['x-guest-mode'] === 'true' || req.query.guestMode === 'true') {
-      // For guest users, we'll use a special ID (1)
-      return 1;
+      // For guest users, use a designated guest ID (9999)
+      // This ensures guest content doesn't interfere with real users
+      return 9999;
     }
+
+    // User is neither authenticated nor in guest mode
     return null;
   };
 
@@ -107,7 +118,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/inspiration/:id/analyze', async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const image = await storage.getInspirationImage(id);
+      const userId = getUserId(req);
+
+      if (userId === null) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const image = await storage.getInspirationImage(id, userId);
 
       if (!image) {
         return res.status(404).json({ message: 'Inspiration image not found' });
@@ -138,7 +155,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete('/api/inspiration/:id', async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const image = await storage.getInspirationImage(id);
+      const userId = getUserId(req);
+
+      if (userId === null) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const image = await storage.getInspirationImage(id, userId);
 
       if (!image) {
         return res.status(404).json({ message: 'Inspiration image not found' });
@@ -178,7 +201,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const id = parseInt(req.params.id);
-      const image = await storage.getInspirationImage(id);
+      const image = await storage.getInspirationImage(id, userId);
 
       if (!image) {
         return res.status(404).json({ message: 'Inspiration image not found' });
@@ -196,12 +219,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/closet', async (req, res) => {
     try {
       const category = req.query.category as string;
+      const userId = getUserId(req);
+
+      // Return empty array if no user ID is available
+      if (userId === null) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
 
       let items;
       if (category && clothingCategories.includes(category as any)) {
-        items = await storage.getClothingItemsByCategory(category);
+        items = await storage.getClothingItemsByCategory(category, userId);
       } else {
-        items = await storage.getClothingItems();
+        items = await storage.getClothingItems(userId);
       }
 
       res.json(items);
@@ -250,7 +279,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/closet/:id/analyze', async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const item = await storage.getClothingItem(id);
+      const userId = getUserId(req);
+
+      if (userId === null) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const item = await storage.getClothingItem(id, userId);
 
       if (!item) {
         return res.status(404).json({ message: 'Clothing item not found' });
@@ -281,7 +316,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete('/api/closet/:id', async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const item = await storage.getClothingItem(id);
+      const userId = getUserId(req);
+
+      if (userId === null) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const item = await storage.getClothingItem(id, userId);
 
       if (!item) {
         return res.status(404).json({ message: 'Clothing item not found' });
@@ -314,7 +355,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/inspiration/:id/missing-pieces', async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const image = await storage.getInspirationImage(id);
+      const userId = getUserId(req);
+
+      // Return empty result if no user ID is available
+      if (userId === null) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const image = await storage.getInspirationImage(id, userId);
 
       if (!image) {
         return res.status(404).json({ message: 'Inspiration image not found' });
@@ -328,8 +376,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const buffer = await fs.promises.readFile(filepath);
       const base64Image = buffer.toString('base64');
 
-      // Get all clothing items to build a profile of user's closet
-      const clothingItems = await storage.getClothingItems();
+      // Get all clothing items to build a profile of user's closet (filtered by userId)
+      const clothingItems = await storage.getClothingItems(userId);
       const userClosetTags = clothingItems.flatMap(item => item.styleTags || []);
 
       // Identify missing pieces with OpenAI
@@ -343,9 +391,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get categories and counts
-  app.get('/api/categories', async (_req, res) => {
+  app.get('/api/categories', async (req, res) => {
     try {
-      const items = await storage.getClothingItems();
+      const userId = getUserId(req);
+
+      // Return empty counts if no user ID is available
+      if (userId === null) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const items = await storage.getClothingItems(userId);
 
       // Count items by category
       const categoryCounts = clothingCategories.reduce((acc, category) => {
@@ -366,7 +421,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/inspiration/:id/matching', async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const image = await storage.getInspirationImage(id);
+      const userId = getUserId(req);
+
+      // Return empty result if no user ID is available
+      if (userId === null) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const image = await storage.getInspirationImage(id, userId);
 
       if (!image) {
         return res.status(404).json({ message: 'Inspiration image not found' });
@@ -376,8 +438,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: 'Inspiration image has no style tags. Analyze it first.' });
       }
 
-      // Get all clothing items
-      const clothingItems = await storage.getClothingItems();
+      // Get all clothing items for this user
+      const clothingItems = await storage.getClothingItems(userId);
 
       // Calculate matching scores for each item
       // An item is considered a match if it shares at least one tag with the inspiration
@@ -416,9 +478,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const style = req.query.style as string;
       const season = req.query.season as string;
       const themeId = req.query.themeId as string;
+      const userId = getUserId(req);
 
-      // Get all clothing items from the storage
-      const closetItems = await storage.getClothingItems();
+      // Return empty result if no user ID is available
+      if (userId === null) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      // Get all clothing items from the storage for this user
+      const closetItems = await storage.getClothingItems(userId);
       if (closetItems.length === 0) {
         return res.json({ outfits: [] });
       }

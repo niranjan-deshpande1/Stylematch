@@ -4,11 +4,13 @@ import { z } from "zod";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
+  email: true,
   username: true,
   password: true,
 });
@@ -30,6 +32,7 @@ export const insertInspirationImageSchema = createInsertSchema(inspirationImages
   imageUrl: true,
   userId: true,
   isSaved: true,
+  styleTags: true,
 });
 
 export const clothingCategories = [
@@ -56,6 +59,7 @@ export const insertClothingItemSchema = createInsertSchema(clothingItems).pick({
   imageUrl: true,
   category: true,
   userId: true,
+  styleTags: true,
 });
 
 export type InspirationImage = typeof inspirationImages.$inferSelect;

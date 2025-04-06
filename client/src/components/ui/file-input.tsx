@@ -63,7 +63,6 @@ export function FileInput({
       <p className="text-zinc-500 text-sm mt-1">{sublabel}</p>
       <button
         type="button"
-        onClick={(e) => e.stopPropagation()}
         className="mt-6 px-6 py-2 bg-black text-zinc-300 border border-zinc-800 text-sm hover:bg-zinc-900 hover:border-zinc-700 transition-colors"
       >
         {buttonText}

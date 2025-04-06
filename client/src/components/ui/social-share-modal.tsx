@@ -79,7 +79,7 @@ export function SocialShareModal({
   outfitItems
 }: SocialShareModalProps) {
   const { toast } = useToast();
-  const [caption, setCaption] = useState(`ootd ✨`);
+  const [caption, setCaption] = useState(`ootd`);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState(SHARE_TEMPLATES[0].id);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
