@@ -1,9 +1,9 @@
 import { apiRequest, setGuestModeHeader } from "./queryClient";
-import type { 
-  InspirationImage, 
-  ClothingItem, 
-  StyleTagsResponse, 
-  MissingPiece, 
+import type {
+  InspirationImage,
+  ClothingItem,
+  StyleTagsResponse,
+  MissingPiece,
   MissingPiecesResponse,
   OutfitCombination,
   OutfitCombinationsResponse,
@@ -13,7 +13,11 @@ import type {
 // Helper function to enable/disable guest mode
 export function setGuestMode(enable: boolean) {
   if (typeof window !== 'undefined') {
+    // Store guest mode state in both storage types for better reliability
     localStorage.setItem('guestMode', enable ? 'true' : 'false');
+    sessionStorage.setItem('guestMode', enable ? 'true' : 'false');
+
+    // Update request headers
     setGuestModeHeader(enable);
   }
 }
@@ -21,7 +25,12 @@ export function setGuestMode(enable: boolean) {
 // Helper to check if guest mode is enabled
 export function isGuestMode(): boolean {
   if (typeof window === 'undefined') return false;
-  return localStorage.getItem('guestMode') === 'true';
+
+  // Check both storage types, preferring sessionStorage
+  const sessionValue = sessionStorage.getItem('guestMode');
+  const localValue = localStorage.getItem('guestMode');
+
+  return sessionValue === 'true' || localValue === 'true';
 }
 
 // Get all clothing items
@@ -125,19 +134,19 @@ export async function getOutfitCombinations(options?: {
   themeId?: string;
 }): Promise<OutfitCombination[]> {
   let url = '/api/outfits';
-  
+
   if (options) {
     const params = new URLSearchParams();
     if (options.style) params.append('style', options.style);
     if (options.season) params.append('season', options.season);
     if (options.themeId) params.append('themeId', options.themeId);
-    
+
     const queryString = params.toString();
     if (queryString) {
       url += `?${queryString}`;
     }
   }
-  
+
   const res = await apiRequest("GET", url);
   const data = await res.json() as OutfitCombinationsResponse;
   return data.outfits;
@@ -145,18 +154,18 @@ export async function getOutfitCombinations(options?: {
 
 // Share outfit to social media
 export async function shareOutfitToSocial(
-  outfitId: string, 
+  outfitId: string,
   platform: 'instagram' | 'snapchat' | 'twitter' | 'facebook'
 ): Promise<{ shareUrl: string }> {
   try {
     const res = await apiRequest("POST", `/api/outfits/${outfitId}/share`, {
       platform
     });
-    
+
     if (!res.ok) {
       throw new Error(`Failed to share outfit: ${res.status} ${res.statusText}`);
     }
-    
+
     return res.json();
   } catch (error) {
     console.error("Error in shareOutfitToSocial:", error);
@@ -172,7 +181,7 @@ export async function getOutfit(outfitId: string): Promise<OutfitCombination> {
 
 // Create a shareable image for an outfit
 export async function createOutfitShareableImage(
-  outfitId: string, 
+  outfitId: string,
   options: {
     background?: string; // color hex code
     template?: string; // template style

@@ -37,17 +37,22 @@ export function setupAuth(app: Express) {
   // Use a consistent session secret for all environments
   const SESSION_SECRET = 'stylematch-secure-session-secret-2025';
 
+  // Configure session settings across multiple devices
   const sessionSettings: session.SessionOptions = {
     secret: SESSION_SECRET,
-    resave: true, // Changed to true to ensure session is saved back to store
-    saveUninitialized: true, // Changed to true to create session for all users
+    resave: true, // Changed to true to ensure session is always saved to store
+    saveUninitialized: true, // Changed to true to ensure session is created for all users
+    rolling: true, // Refresh the cookie on each request to prevent expiration
     store: storage.sessionStore,
     name: 'stylematch.sid', // Custom cookie name for better security
     cookie: {
-      maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
-      secure: false, // Allow non-HTTPS for development
+      maxAge: 1000 * 60 * 60 * 24 * 60, // 60 days for long-term persistence
+      // Set secure to false in all environments for preview
+      // This allows HTTP access for development and testing
+      secure: false,
       httpOnly: true, // Prevent client-side access
-      sameSite: 'lax', // Prevent CSRF
+      // Use 'lax' for better browser compatibility while maintaining security
+      sameSite: 'lax',
       path: '/' // Ensure cookie is available across the entire site
     }
   };
@@ -215,13 +220,24 @@ export function setupAuth(app: Express) {
   });
 
   app.get("/api/user", (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.sendStatus(401);
-    }
+    try {
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
 
-    // Return user data without including the password hash
-    const { password, ...userWithoutPassword } = req.user as any;
-    res.json(userWithoutPassword);
+      if (!req.user) {
+        return res.status(401).json({ message: "User data unavailable" });
+      }
+
+      // Return user data without including the password hash
+      const { password, ...userWithoutPassword } = req.user as any;
+      return res.json(userWithoutPassword);
+    } catch (error) {
+      console.error('Error in /api/user route:', error);
+      if (!res.headersSent) {
+        return res.status(500).json({ message: "Internal server error" });
+      }
+    }
   });
 }
 
@@ -230,5 +246,6 @@ export function isAuthenticated(req: Request, res: Response, next: NextFunction)
   if (req.isAuthenticated()) {
     return next();
   }
+
   res.status(401).json({ message: "Unauthorized" });
 }

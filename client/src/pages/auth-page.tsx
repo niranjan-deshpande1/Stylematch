@@ -1,12 +1,25 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -21,15 +34,17 @@ const loginSchema = z.object({
 });
 
 // Register validation schema with email validation
-const registerSchema = insertUserSchema.extend({
-  email: z.string().email("Please enter a valid email address"),
-  username: z.string().min(3, "Username must be at least 3 characters"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  confirmPassword: z.string(),
-}).refine(data => data.password === data.confirmPassword, {
-  message: "Passwords do not match",
-  path: ["confirmPassword"],
-});
+const registerSchema = insertUserSchema
+  .extend({
+    email: z.string().email("Please enter a valid email address"),
+    username: z.string().min(3, "Username must be at least 3 characters"),
+    password: z.string().min(6, "Password must be at least 6 characters"),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 type RegisterFormValues = z.infer<typeof registerSchema>;
@@ -37,7 +52,7 @@ type RegisterFormValues = z.infer<typeof registerSchema>;
 export default function AuthPage() {
   // Check if we should show register form based on localStorage
   const initialTab = (): "login" | "register" => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       const showRegister = localStorage.getItem("showRegisterForm");
       if (showRegister === "true") {
         // Clear the flag so it doesn't persist across page reloads
@@ -48,7 +63,9 @@ export default function AuthPage() {
     return "login";
   };
 
-  const [activeTab, setActiveTab] = useState<"login" | "register">(initialTab());
+  const [activeTab, setActiveTab] = useState<"login" | "register">(
+    initialTab(),
+  );
   const { isAuthenticated, loginMutation, registerMutation } = useAuth();
   const [location, navigate] = useLocation();
 
@@ -79,7 +96,7 @@ export default function AuthPage() {
         const redirectPath = localStorage.getItem("redirectAfterAuth") || "/";
         navigate(redirectPath);
         localStorage.removeItem("redirectAfterAuth");
-      }
+      },
     });
   };
 
@@ -87,13 +104,13 @@ export default function AuthPage() {
   const onRegisterSubmit = (values: RegisterFormValues) => {
     // Remove the confirmPassword field as it's not part of the API
     const { confirmPassword, ...registrationData } = values;
-    
+
     registerMutation.mutate(registrationData, {
       onSuccess: () => {
         const redirectPath = localStorage.getItem("redirectAfterAuth") || "/";
         navigate(redirectPath);
         localStorage.removeItem("redirectAfterAuth");
-      }
+      },
     });
   };
 
@@ -104,6 +121,38 @@ export default function AuthPage() {
     navigate(redirectPath);
     localStorage.removeItem("redirectAfterAuth");
   };
+
+  // Create a ref for the welcome text section to scroll to
+  const welcomeRef = useRef<HTMLDivElement>(null);
+
+  // Function to determine if we're on a mobile device (small screen)
+  const isMobileScreen = () => {
+    return typeof window !== "undefined" && window.innerWidth < 768;
+  };
+
+  // Auto-scroll to the welcome section when component mounts (only on mobile)
+  useEffect(() => {
+    if (isMobileScreen()) {
+      // Use a slight delay to ensure the page has fully rendered
+      const timer = setTimeout(() => {
+        if (welcomeRef.current) {
+          // Setting a large yOffset to ensure no text from 'get ai-powered outfit recommendations' is visible
+          const yOffset = -90; // Very large offset to hide the right column features text
+          const y =
+            welcomeRef.current.getBoundingClientRect().top +
+            window.pageYOffset +
+            yOffset;
+
+          window.scrollTo({
+            top: y,
+            behavior: "smooth",
+          });
+        }
+      }, 500);
+
+      return () => clearTimeout(timer);
+    }
+  }, []);
 
   // Check if user is already logged in and redirect
   if (isAuthenticated) {
@@ -116,7 +165,7 @@ export default function AuthPage() {
       <div className="container px-4 md:px-6 flex flex-col-reverse md:flex-row items-center justify-center md:gap-10 lg:gap-16">
         {/* Left column: Authentication form */}
         <div className="w-full max-w-md space-y-6 py-12">
-          <div className="space-y-2 text-center">
+          <div ref={welcomeRef} className="space-y-2 text-center">
             <h1 className="text-3xl font-bold">welcome to stylematch</h1>
             <p className="text-muted-foreground">
               sign in to access your personal wardrobe
@@ -129,21 +178,29 @@ export default function AuthPage() {
                 {activeTab === "login" ? "sign in" : "create account"}
               </CardTitle>
               <CardDescription>
-                {activeTab === "login" 
-                  ? "enter your credentials to access your account" 
+                {activeTab === "login"
+                  ? "enter your credentials to access your account"
                   : "fill in your details to create a new account"}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "login" | "register")}>
+              <Tabs
+                value={activeTab}
+                onValueChange={(value) =>
+                  setActiveTab(value as "login" | "register")
+                }
+              >
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="login">Login</TabsTrigger>
                   <TabsTrigger value="register">Register</TabsTrigger>
                 </TabsList>
-                
+
                 <TabsContent value="login" className="space-y-4 mt-4">
                   <Form {...loginForm}>
-                    <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4">
+                    <form
+                      onSubmit={loginForm.handleSubmit(onLoginSubmit)}
+                      className="space-y-4"
+                    >
                       <FormField
                         control={loginForm.control}
                         name="username"
@@ -155,14 +212,18 @@ export default function AuthPage() {
                                 <span className="absolute left-3 top-2.5 text-muted-foreground">
                                   <Mail className="h-4 w-4" />
                                 </span>
-                                <Input placeholder="email@example.com" className="pl-10" {...field} />
+                                <Input
+                                  placeholder="email@example.com"
+                                  className="pl-10"
+                                  {...field}
+                                />
                               </div>
                             </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
-                      
+
                       <FormField
                         control={loginForm.control}
                         name="password"
@@ -174,32 +235,42 @@ export default function AuthPage() {
                                 <span className="absolute left-3 top-2.5 text-muted-foreground">
                                   <Lock className="h-4 w-4" />
                                 </span>
-                                <Input type="password" className="pl-10" {...field} />
+                                <Input
+                                  type="password"
+                                  className="pl-10"
+                                  {...field}
+                                />
                               </div>
                             </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
-                      
-                      <Button 
-                        type="submit" 
-                        className="w-full" 
+
+                      <Button
+                        type="submit"
+                        className="w-full"
                         disabled={loginMutation.isPending}
                       >
                         {loginMutation.isPending ? (
                           <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Signing in...
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />{" "}
+                            Signing in...
                           </>
-                        ) : "Sign in"}
+                        ) : (
+                          "Sign in"
+                        )}
                       </Button>
                     </form>
                   </Form>
                 </TabsContent>
-                
+
                 <TabsContent value="register" className="space-y-4 mt-4">
                   <Form {...registerForm}>
-                    <form onSubmit={registerForm.handleSubmit(onRegisterSubmit)} className="space-y-4">
+                    <form
+                      onSubmit={registerForm.handleSubmit(onRegisterSubmit)}
+                      className="space-y-4"
+                    >
                       <FormField
                         control={registerForm.control}
                         name="email"
@@ -211,14 +282,18 @@ export default function AuthPage() {
                                 <span className="absolute left-3 top-2.5 text-muted-foreground">
                                   <Mail className="h-4 w-4" />
                                 </span>
-                                <Input placeholder="email@example.com" className="pl-10" {...field} />
+                                <Input
+                                  placeholder="email@example.com"
+                                  className="pl-10"
+                                  {...field}
+                                />
                               </div>
                             </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
-                      
+
                       <FormField
                         control={registerForm.control}
                         name="username"
@@ -237,7 +312,7 @@ export default function AuthPage() {
                           </FormItem>
                         )}
                       />
-                      
+
                       <FormField
                         control={registerForm.control}
                         name="password"
@@ -249,14 +324,18 @@ export default function AuthPage() {
                                 <span className="absolute left-3 top-2.5 text-muted-foreground">
                                   <Lock className="h-4 w-4" />
                                 </span>
-                                <Input type="password" className="pl-10" {...field} />
+                                <Input
+                                  type="password"
+                                  className="pl-10"
+                                  {...field}
+                                />
                               </div>
                             </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
-                      
+
                       <FormField
                         control={registerForm.control}
                         name="confirmPassword"
@@ -268,30 +347,37 @@ export default function AuthPage() {
                                 <span className="absolute left-3 top-2.5 text-muted-foreground">
                                   <Lock className="h-4 w-4" />
                                 </span>
-                                <Input type="password" className="pl-10" {...field} />
+                                <Input
+                                  type="password"
+                                  className="pl-10"
+                                  {...field}
+                                />
                               </div>
                             </FormControl>
                             <FormMessage />
                           </FormItem>
                         )}
                       />
-                      
-                      <Button 
-                        type="submit" 
-                        className="w-full" 
+
+                      <Button
+                        type="submit"
+                        className="w-full"
                         disabled={registerMutation.isPending}
                       >
                         {registerMutation.isPending ? (
                           <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Creating account...
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />{" "}
+                            Creating account...
                           </>
-                        ) : "Create account"}
+                        ) : (
+                          "Create account"
+                        )}
                       </Button>
                     </form>
                   </Form>
                 </TabsContent>
               </Tabs>
-              
+
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
                   <span className="w-full border-t border-muted" />
@@ -300,7 +386,7 @@ export default function AuthPage() {
                   <span className="bg-card px-2 text-muted-foreground">or</span>
                 </div>
               </div>
-              
+
               <Button
                 variant="ghost"
                 className="w-full"
@@ -317,8 +403,9 @@ export default function AuthPage() {
           <div className="space-y-2">
             <h2 className="text-2xl font-bold">unlock your style potential</h2>
             <p className="text-muted-foreground">
-              stylematch helps you organize your wardrobe, discover new outfit combinations, 
-              and identify missing pieces to complete your personal style.
+              stylematch helps you organize your wardrobe, discover new outfit
+              combinations, and identify missing pieces to complete your
+              personal style.
             </p>
           </div>
           <div className="space-y-4">

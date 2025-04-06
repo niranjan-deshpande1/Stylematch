@@ -48,8 +48,15 @@ app.use((req, res, next) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
-    res.status(status).json({ message });
-    throw err;
+    if (!res.headersSent) {
+      console.error(`Error handler: ${message}`);
+      res.status(status).json({ message });
+    } else {
+      console.error(`Error occurred after headers sent: ${message}`);
+    }
+
+    // Log error but don't rethrow it to prevent terminating the server
+    console.error(err);
   });
 
   // vite dev server in development, built files in production

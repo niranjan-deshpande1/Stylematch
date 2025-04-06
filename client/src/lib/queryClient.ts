@@ -3,9 +3,11 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 // Track if guest mode is enabled
 let isGuestMode = false;
 
-// Initialize guest mode from localStorage if in browser environment
+// Initialize guest mode from sessionStorage or localStorage if in browser environment
 if (typeof window !== 'undefined') {
-  isGuestMode = localStorage.getItem('guestMode') === 'true';
+  // Prefer sessionStorage for guest mode (cleaner when closing browser)
+  isGuestMode = sessionStorage.getItem('guestMode') === 'true' ||
+                localStorage.getItem('guestMode') === 'true';
 }
 
 // Function to enable/disable guest mode headers in API requests
@@ -23,15 +25,15 @@ async function throwIfResNotOk(res: Response) {
 // Helper to create headers with guest mode support
 function createHeaders(hasData: boolean = false): HeadersInit {
   const headers: HeadersInit = {};
-  
+
   if (hasData) {
     headers["Content-Type"] = "application/json";
   }
-  
+
   if (isGuestMode) {
     headers["X-Guest-Mode"] = "true";
   }
-  
+
   return headers;
 }
 
@@ -57,9 +59,20 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey[0] as string, {
-      credentials: "include",
-      headers: createHeaders(),
+    // Add cache-busting timestamp to prevent cached responses
+    // This is especially important for authentication endpoints
+    const timestamp = new Date().getTime();
+    const url = `${queryKey[0] as string}${(queryKey[0] as string).includes('?') ? '&' : '?'}_t=${timestamp}`;
+
+    const res = await fetch(url, {
+      credentials: "include", // Always include credentials for cross-domain compatibility
+      headers: {
+        ...createHeaders(),
+        // Add cache-control headers to prevent caching
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      },
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {

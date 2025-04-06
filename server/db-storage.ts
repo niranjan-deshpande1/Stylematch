@@ -11,39 +11,64 @@ const { Pool } = pg;
  * PostgreSQL implementation of the storage interface
  */
 export class PostgresStorage implements IStorage {
-  public sessionStore: session.Store;
+  public sessionStore: session.Store = new session.MemoryStore(); // Default to memory store until initialized
   private pool: pg.Pool;
 
   constructor() {
-    // Use the same connection pool settings as in db.ts
+    // Use optimized connection pool settings for better reliability and performance
     this.pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: {
         rejectUnauthorized: false // Necessary for some PostgreSQL providers like Neon
       },
-      max: 10, // maximum number of clients in the pool (reduced to avoid connection limits)
-      idleTimeoutMillis: 30000, // how long a client is allowed to remain idle before being closed
-      connectionTimeoutMillis: 10000, // increased to 10 seconds to avoid timeout issues
-      keepAlive: true, // Add keep-alive to prevent connection drops
+      max: 5, // Reduced maximum clients to avoid hitting connection limits
+      min: 1, // Ensure at least one connection is always ready
+      idleTimeoutMillis: 30000, // 30 seconds idle timeout
+      connectionTimeoutMillis: 15000, // Increased to 15 seconds to avoid timeout issues
+      keepAlive: true, // Enable keep-alive to prevent connection drops
+      allowExitOnIdle: false, // Don't allow the app to exit while idle connections exist
     });
 
-    const PgStore = pgSession(session);
-    // Create session store using our shared PostgreSQL connection
-    this.sessionStore = new PgStore({
-      // Use existing connection pool for session store
-      pool: this.pool,
-      tableName: 'session', // Use a custom table name
-      createTableIfMissing: true, // Create the table if it doesn't exist
-      pruneSessionInterval: 60 * 10, // Cleanup expired sessions every 10 minutes
-      conString: process.env.DATABASE_URL // Ensure we use the same connection string
+    // Add event handlers for connection issues
+    this.pool.on('error', (err) => {
+      console.error('Unexpected database pool error on idle client:', err);
+      // Don't crash the server on connection errors, just log them
     });
 
-    // Initialize DB tables
-    this.initializeDatabase();
+    // Create the session store with retry handling
+    this.initSessionStore();
+
+    // Initialize database tables with retry logic
+    this.initializeDatabaseWithRetry();
   }
 
-  private async initializeDatabase() {
-    // Added retry logic for database initialization
+  // Session store initialization with better retry and error handling
+  private initSessionStore() {
+    try {
+      const PgStore = pgSession(session);
+
+      // Create session store using our shared PostgreSQL connection with optimized settings
+      this.sessionStore = new PgStore({
+        pool: this.pool,
+        tableName: 'session', // Using standard table name
+        schemaName: 'public', // Explicit schema name to avoid issues
+        createTableIfMissing: true, // Auto-create table if needed
+        pruneSessionInterval: 60 * 30, // Clean expired sessions every 30 minutes
+        errorLog: (error) => {
+          console.error('Session store error:', error);
+          // Don't crash the server on session store errors
+        }
+      });
+    } catch (error) {
+      console.error('Failed to initialize session store, using memory store fallback:', error);
+      // Fallback to a memory store if PostgreSQL session store fails
+      const MemoryStore = session.MemoryStore;
+      this.sessionStore = new MemoryStore();
+    }
+  }
+
+  // Initialize database with retry mechanism
+  private async initializeDatabaseWithRetry() {
     const maxRetries = 3;
     let retryCount = 0;
     let lastError: any = null;
@@ -51,7 +76,7 @@ export class PostgresStorage implements IStorage {
     while (retryCount < maxRetries) {
       try {
         await db.initDatabase();
-        return; // Success - exit the method
+        return;
       } catch (error) {
         lastError = error;
         console.error(`Database initialization attempt ${retryCount + 1} failed:`, error);
@@ -64,8 +89,8 @@ export class PostgresStorage implements IStorage {
       }
     }
 
-    // If we get here, all retries failed
-    console.error("All database initialization attempts failed");
+    // If all retries failed
+    console.error('All database initialization attempts failed');
     throw lastError;
   }
 
@@ -73,8 +98,8 @@ export class PostgresStorage implements IStorage {
   async getUser(id: number): Promise<User | undefined> {
     const user = await db.getUser(id);
 
-    // Don't return the password
     if (user) {
+      // Don't return the password hash
       const { password, ...userWithoutPassword } = user;
       return userWithoutPassword as User;
     }
@@ -83,22 +108,18 @@ export class PostgresStorage implements IStorage {
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    // This function is used for authentication, so we need to return the full user object
-    // including the password hash for verification
     return db.getUserByUsername(username);
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    // This function is used for authentication, so we need to return the full user object
-    // including the password hash for verification
     return db.getUserByEmail(email);
   }
 
   async createUser(user: InsertUser): Promise<User> {
     const createdUser = await db.createUser(user);
 
-    // Don't return the password
     if (createdUser) {
+      // Don't return the password hash
       const { password, ...userWithoutPassword } = createdUser;
       return userWithoutPassword as User;
     }

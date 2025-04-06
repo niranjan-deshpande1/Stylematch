@@ -12,7 +12,8 @@ import {
   MissingPiecesResponse,
   OutfitCombination,
   OutfitCombinationsResponse,
-  StyleMatchingResponse
+  StyleMatchingResponse,
+  InspirationImage
 } from "@shared/schema";
 
 // Define a new Request type that includes multer's file property
@@ -52,20 +53,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.sendFile(filepath);
   });
 
-  // Get all inspiration images
+  // Get all inspiration images - always return content regardless of auth status
   app.get('/api/inspiration', async (req, res) => {
     try {
-      const userId = getUserId(req);
+      // not logged in, so use the guest id
+      // This ensures content is always available regardless of login status
+      const userId = req.user?.id || 9999;
 
-      // Return empty result if no user ID is available
-      if (userId === null) {
-        return res.status(401).json({ message: 'Authentication required' });
-      }
-
-      // Get images filtered by user ID
+      // Get images with this userId (either actual user or guest user)
       const images = await storage.getInspirationImages(userId);
+
+      // Always return images, even if the array is empty
       res.json(images);
     } catch (error) {
+      console.error('Error fetching inspiration images:', error);
       res.status(500).json({ message: 'Failed to fetch inspiration images' });
     }
   });
@@ -355,9 +356,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/inspiration/:id/missing-pieces', async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const userId = getUserId(req);
 
-      // Return empty result if no user ID is available
+      // Check for guest mode directly (similar to our updated inspiration endpoint)
+      const isGuestMode = req.headers['x-guest-mode'] === 'true' || req.query.guestMode === 'true';
+
+      // Get user ID, defaulting to guest ID in guest mode
+      let userId = req.user?.id as number | null;
+      if (isGuestMode && !userId) {
+        userId = 9999; // Guest mode ID
+      }
+
+      // If there's no user ID at this point, we're not in guest mode and not authenticated
       if (userId === null) {
         return res.status(401).json({ message: 'Authentication required' });
       }
