@@ -42,7 +42,7 @@ export class PostgresStorage implements IStorage {
     this.initializeDatabaseWithRetry();
   }
 
-  // Session store initialization with better retry and error handling
+  // Session store initialization with improved retry and error handling
   private initSessionStore() {
     try {
       const PgStore = pgSession(session);
@@ -53,12 +53,32 @@ export class PostgresStorage implements IStorage {
         tableName: 'session', // Using standard table name
         schemaName: 'public', // Explicit schema name to avoid issues
         createTableIfMissing: true, // Auto-create table if needed
-        pruneSessionInterval: 60 * 30, // Clean expired sessions every 30 minutes
-        errorLog: (error) => {
+        pruneSessionInterval: 60 * 60 * 24, // Clean expired sessions once a day (24 hours)
+        // Set session expiration to 60 days to match cookie maxAge
+        ttl: 60 * 60 * 24 * 60, // 60 days in seconds
+        disableTouch: false, // Make sure sessions are updated on activity
+        errorLog: (error: any) => {
           console.error('Session store error:', error);
           // Don't crash the server on session store errors
-        }
-      });
+        },
+        // Additional options for better persistence
+        conString: process.env.DATABASE_URL // Fallback connection string if pool fails
+      } as any); // Type assertion to allow custom options
+
+      // Test session store connectivity immediately
+      this.testSessionStore();
+
+      // Set up event handlers for session store
+      const store = this.sessionStore as any;
+      if (store.on) {
+        store.on('error', (error: any) => {
+          console.error('PostgreSQL session store error:', error);
+          // Log but don't crash
+        });
+
+        store.on('connect', () => {
+        });
+      }
     } catch (error) {
       console.error('Failed to initialize session store, using memory store fallback:', error);
       // Fallback to a memory store if PostgreSQL session store fails
@@ -67,22 +87,105 @@ export class PostgresStorage implements IStorage {
     }
   }
 
-  // Initialize database with retry mechanism
+  // Test the session store by storing and retrieving a test session
+  private async testSessionStore() {
+    try {
+      const store: any = this.sessionStore;
+      if (!store.get || !store.set) {
+        return;
+      }
+
+      const testSessionId = `test-session-${Date.now()}`;
+      const testSession = {
+        cookie: {
+          originalMaxAge: 86400000,
+          expires: new Date(Date.now() + 86400000),
+          secure: false,
+          httpOnly: true,
+          path: '/',
+          sameSite: 'lax'
+        },
+        test: true,
+        created: new Date().toISOString()
+      };
+
+      // Store test session and retrieve it
+      await new Promise<void>((resolve, reject) => {
+        store.set(testSessionId, testSession, (err: Error) => {
+          if (err) {
+            console.error('Failed to set test session:', err);
+            reject(err);
+            return;
+          }
+
+          store.get(testSessionId, (err: Error, sess: any) => {
+            if (err) {
+              console.error('Failed to get test session:', err);
+              reject(err);
+              return;
+            }
+
+            if (!sess) {
+              console.error('Test session could not be retrieved');
+              reject(new Error('Test session not found'));
+              return;
+            }
+
+            // Clean up the test session
+            store.destroy(testSessionId, (err: Error) => {
+              if (err) {
+                console.warn('Failed to destroy test session:', err);
+                // Not a critical error, continue anyway
+              }
+              resolve();
+            });
+          });
+        });
+      });
+    } catch (error) {
+      console.error('Session store test failed:', error);
+      throw error;
+    }
+  }
+
+  // Initialize database with retries
   private async initializeDatabaseWithRetry() {
-    const maxRetries = 3;
+    const maxRetries = 5; // Increased max retries for better reliability
     let retryCount = 0;
     let lastError: any = null;
 
+    // Helper function for exponential backoff with jitter
+    const calculateBackoff = (retry: number) => {
+      const baseWait = Math.min(30000, Math.pow(2, retry) * 1000); // Cap at 30 seconds
+      const jitter = Math.random() * baseWait * 0.2; // Add up to 20% jitter
+      return baseWait + jitter;
+    };
+
+    // Track start time for overall timeout reporting
+    const startTime = Date.now();
+
     while (retryCount < maxRetries) {
       try {
-        await db.initDatabase();
-        return;
-      } catch (error) {
-        lastError = error;
-        console.error(`Database initialization attempt ${retryCount + 1} failed:`, error);
+        // Before initializing, check if we can connect to the database
+        await this.testDatabaseConnection();
 
-        // Exponential backoff - wait longer between each retry
-        const waitTime = Math.pow(2, retryCount) * 1000;
+        // If connection is successful, initialize tables
+        await db.initDatabase();
+
+        // Verify session table is working properly
+        await this.verifySessionTable();
+
+        return;
+      } catch (error: any) {
+        lastError = error;
+        const errorMessage = error.message || 'Unknown error';
+
+        console.error(`Database initialization attempt ${retryCount + 1} failed:`, errorMessage);
+
+        // Calculate wait time with exponential backoff and jitter
+        const waitTime = calculateBackoff(retryCount);
+        const elapsedSeconds = ((Date.now() - startTime) / 1000).toFixed(1);
+
         await new Promise(resolve => setTimeout(resolve, waitTime));
 
         retryCount++;
@@ -90,8 +193,66 @@ export class PostgresStorage implements IStorage {
     }
 
     // If all retries failed
-    console.error('All database initialization attempts failed');
-    throw lastError;
+    const totalTimeSeconds = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.error(`All database initialization attempts failed after ${totalTimeSeconds}s`);
+    throw lastError || new Error('Failed to initialize database after multiple attempts');
+  }
+
+  // Test basic database connectivity
+  private async testDatabaseConnection(): Promise<void> {
+    try {
+      const client = await this.pool.connect();
+      try {
+        await client.query('SELECT 1 AS connection_test');
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      console.error('Database connection test failed:', error);
+      throw error;
+    }
+  }
+
+  // Verify that the session table exists and has the expected structure
+  private async verifySessionTable(): Promise<void> {
+    try {
+      const client = await this.pool.connect();
+      try {
+        // Check if session table exists
+        const tableExists = await client.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_schema = 'public'
+            AND table_name = 'session'
+          );
+        `);
+
+        if (!tableExists.rows[0].exists) {
+          return;
+        }
+
+        // Check if index exists
+        const indexExists = await client.query(`
+          SELECT COUNT(*) as index_count
+          FROM pg_indexes
+          WHERE tablename = 'session' AND indexname = 'IDX_session_expire';
+        `);
+
+        if (indexExists.rows[0].index_count === 0) {
+          await client.query(`
+            CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
+          `);
+        }
+
+        // Report on session count
+        const sessionCount = await client.query('SELECT COUNT(*) FROM session');
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      console.error('Session table verification failed:', error);
+      throw error;
+    }
   }
 
   // User methods

@@ -24,6 +24,13 @@ export async function initDatabase() {
     // Acquire a client from the pool with retry logic
     client = await getClientWithRetry();
 
+    // First, check if tables already exist to avoid unnecessary setup
+    const tableExists = await checkTablesExist(client);
+
+    if (tableExists) {
+      return;
+    }
+
     // Start a transaction
     await client.query('BEGIN');
 
@@ -88,6 +95,42 @@ export async function initDatabase() {
     if (client) {
       client.release();
     }
+  }
+}
+
+// Check if tables already exist to skip initialization
+async function checkTablesExist(client: pg.PoolClient): Promise<boolean> {
+  try {
+    // Query to check if our expected tables exist in the database
+    const result = await client.query(`
+      SELECT COUNT(*) as table_count
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+      AND table_name IN ('users', 'inspiration_images', 'clothing_items', 'session');
+    `);
+
+    // If we found all 4 tables, check if session table has proper indices
+    if (result.rows[0].table_count >= 4) {
+      // Verify session table has the expire index for proper session cleanup
+      const indexResult = await client.query(`
+        SELECT COUNT(*) as index_count
+        FROM pg_indexes
+        WHERE tablename = 'session' AND indexname = 'IDX_session_expire';
+      `);
+
+      if (indexResult.rows[0].index_count === 0) {
+        await client.query(`
+          CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
+        `);
+      }
+
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    console.error('Error checking table existence:', error);
+    return false; // If query fails, assume tables don't exist
   }
 }
 

@@ -37,16 +37,22 @@ export function setupAuth(app: Express) {
   // Use a consistent session secret for all environments
   const SESSION_SECRET = 'stylematch-secure-session-secret-2025';
 
+  // Calculate cookie expiration date
+  const expirationDate = new Date();
+  expirationDate.setDate(expirationDate.getDate() + 60); // 60 days from now
+
   // Configure session settings across multiple devices
   const sessionSettings: session.SessionOptions = {
     secret: SESSION_SECRET,
-    resave: true, // Changed to true to ensure session is always saved to store
-    saveUninitialized: true, // Changed to true to ensure session is created for all users
+    resave: true, // Ensure session is always saved to store, even if not modified
+    saveUninitialized: true, // Create session for all users
     rolling: true, // Refresh the cookie on each request to prevent expiration
     store: storage.sessionStore,
     name: 'stylematch.sid', // Custom cookie name for better security
     cookie: {
-      maxAge: 1000 * 60 * 60 * 24 * 60, // 60 days for long-term persistence
+      maxAge: 1000 * 60 * 60 * 24 * 60, // 60 days in milliseconds
+      // Set both maxAge and expires for maximum compatibility across browsers
+      expires: expirationDate,
       // Set secure to false in all environments for preview
       // This allows HTTP access for development and testing
       secure: false,
@@ -54,7 +60,7 @@ export function setupAuth(app: Express) {
       // Use 'lax' for better browser compatibility while maintaining security
       sameSite: 'lax',
       path: '/' // Ensure cookie is available across the entire site
-    }
+    },
   };
 
   app.set("trust proxy", 1);
