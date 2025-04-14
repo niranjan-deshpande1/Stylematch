@@ -30,11 +30,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     data: user,
     error,
     isLoading,
+    refetch,
   } = useQuery<User | null, Error>({
     queryKey: ["/api/user"],
     queryFn: getQueryFn({ on401: "returnNull" }),
     staleTime: 30000, // 30 seconds
-    retry: 2
+    retry: 3, // Increase retries for better reliability across networks and devices
+    retryDelay: attempt => Math.min(1000 * 2 ** attempt, 30000), // Exponential backoff with max 30s delay
+    // Careful caching configuration for better persistence
+    refetchOnWindowFocus: true, // Recheck auth when window gets focus
+    refetchOnReconnect: true, // Recheck auth when network reconnects
+    refetchOnMount: true, // Always recheck auth when component mounts
+    refetchInterval: 5 * 60 * 1000, // Recheck auth every 5 minutes
+    // Session refresh logic - ping more frequently as session age increases
+    refetchIntervalInBackground: true,
   });
 
   // Login mutation
@@ -129,10 +138,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useAuth() {
+// Define as a named function expression for better React Fast Refresh compatibility
+const useAuth = function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
-}
+};
+
+// Export the hook
+export { useAuth };

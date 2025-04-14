@@ -42,12 +42,47 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(url, {
-    method,
-    headers: createHeaders(!!data),
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  // Add cache-busting timestamp to prevent cached responses
+  // This is especially important for authentication endpoints
+  const timestamp = new Date().getTime();
+  const urlWithTimestamp = `${url}${url.includes('?') ? '&' : '?'}_t=${timestamp}`;
+
+  // Fetch with retry for network failures
+  const fetchWithRetry = async (attempt = 1, maxAttempts = 3): Promise<Response> => {
+    try {
+      const res = await fetch(urlWithTimestamp, {
+        method,
+        headers: {
+          ...createHeaders(!!data),
+          // Add cache-control headers to prevent browser caching
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        },
+        body: data ? JSON.stringify(data) : undefined,
+        credentials: "include", // Always send cookies with requests
+        redirect: "follow", // Follow redirects automatically
+        mode: "cors", // Enable CORS for cross-origin requests
+        keepalive: true, // Keep connection alive for reliability
+      });
+
+      return res;
+    } catch (err) {
+      // Only retry on network errors, not on HTTP errors
+      if (attempt < maxAttempts && err instanceof Error &&
+          (err.name === 'TypeError' || err.message.includes('network'))) {
+        // Exponential backoff
+        const delay = Math.min(1000 * 2 ** attempt, 5000);
+
+        return new Promise(resolve => {
+          setTimeout(() => resolve(fetchWithRetry(attempt + 1, maxAttempts)), delay);
+        });
+      }
+      throw err;
+    }
+  };
+
+  const res = await fetchWithRetry();
 
   await throwIfResNotOk(res);
   return res;
@@ -64,16 +99,36 @@ export const getQueryFn: <T>(options: {
     const timestamp = new Date().getTime();
     const url = `${queryKey[0] as string}${(queryKey[0] as string).includes('?') ? '&' : '?'}_t=${timestamp}`;
 
-    const res = await fetch(url, {
-      credentials: "include", // Always include credentials for cross-domain compatibility
-      headers: {
-        ...createHeaders(),
-        // Add cache-control headers to prevent caching
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      },
-    });
+    // Fetch with retry for network failures
+    const fetchWithRetry = async (attempt = 1, maxAttempts = 3): Promise<Response> => {
+      try {
+        const res = await fetch(url, {
+          credentials: "include", // Always include credentials for cross-domain compatibility
+          headers: {
+            ...createHeaders(),
+            // Add cache-control headers to prevent caching
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          },
+        });
+        return res;
+      } catch (err) {
+        // Only retry on network errors, not on HTTP errors
+        if (attempt < maxAttempts && err instanceof Error &&
+            (err.name === 'TypeError' || err.message.includes('network'))) {
+          // Exponential backoff
+          const delay = Math.min(1000 * 2 ** attempt, 5000);
+
+          return new Promise(resolve => {
+            setTimeout(() => resolve(fetchWithRetry(attempt + 1, maxAttempts)), delay);
+          });
+        }
+        throw err;
+      }
+    };
+
+    const res = await fetchWithRetry();
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;

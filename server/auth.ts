@@ -2,7 +2,7 @@ import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { Express, Request, Response, NextFunction } from "express";
 import session from "express-session";
-import { scrypt, randomBytes, timingSafeEqual } from "crypto";
+import * as crypto from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User } from "@shared/schema";
@@ -18,10 +18,10 @@ declare global {
   }
 }
 
-const scryptAsync = promisify(scrypt);
+const scryptAsync = promisify(crypto.scrypt);
 
 async function hashPassword(password: string) {
-  const salt = randomBytes(16).toString("hex");
+  const salt = crypto.randomBytes(16).toString("hex");
   const buf = (await scryptAsync(password, salt, 64)) as Buffer;
   return `${buf.toString("hex")}.${salt}`;
 }
@@ -30,42 +30,46 @@ async function comparePasswords(supplied: string, stored: string) {
   const [hashed, salt] = stored.split(".");
   const hashedBuf = Buffer.from(hashed, "hex");
   const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
-  return timingSafeEqual(hashedBuf, suppliedBuf);
+  return crypto.timingSafeEqual(hashedBuf, suppliedBuf);
 }
 
 export function setupAuth(app: Express) {
-  // Use a consistent session secret for all environments
-  const SESSION_SECRET = 'stylematch-secure-session-secret-2025';
+  // Use environment variable for session secret with a fallback
+  const SESSION_SECRET = process.env.SESSION_SECRET || 'stylematch-secure-session-secret-2025';
 
   // Calculate cookie expiration date
   const expirationDate = new Date();
-  expirationDate.setDate(expirationDate.getDate() + 60); // 60 days from now
+  // 30 days × 24 hours × 60 minutes × 60 seconds × 1000 milliseconds
+  expirationDate.setTime(expirationDate.getTime() + (30 * 24 * 60 * 60 * 1000));
 
-  // Configure session settings across multiple devices
+  // session settings
   const sessionSettings: session.SessionOptions = {
     secret: SESSION_SECRET,
-    resave: true, // Ensure session is always saved to store, even if not modified
-    saveUninitialized: true, // Create session for all users
-    rolling: true, // Refresh the cookie on each request to prevent expiration
+    resave: false,
+    saveUninitialized: false,
+    rolling: true, // reset the expiry on every request
     store: storage.sessionStore,
-    name: 'stylematch.sid', // Custom cookie name for better security
+    name: 'stylematch.sid',
+    proxy: true, // Trust the reverse proxy when secure cookies are in use
     cookie: {
-      maxAge: 1000 * 60 * 60 * 24 * 60, // 60 days in milliseconds
-      // Set both maxAge and expires for maximum compatibility across browsers
+      maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days in milliseconds
       expires: expirationDate,
-      // Set secure to false in all environments for preview
-      // This allows HTTP access for development and testing
-      secure: false,
-      httpOnly: true, // Prevent client-side access
-      // Use 'lax' for better browser compatibility while maintaining security
+      // Only use secure in production
+      secure: process.env.NODE_ENV === 'production' ? true : false,
+      httpOnly: true,
+      // Lax allows cookies to be sent with top-level navigations
       sameSite: 'lax',
-      path: '/' // Ensure cookie is available across the entire site
+      path: '/', // Make cookie available across the entire site
+      domain: undefined
     },
   };
 
   app.set("trust proxy", 1);
+
   app.use(session(sessionSettings));
+
   app.use(passport.initialize());
+
   app.use(passport.session());
 
   // Local strategy for username/password authentication
@@ -178,13 +182,24 @@ export function setupAuth(app: Express) {
         password: await hashPassword(password),
       });
 
-      // Log the user in
+      // Log the user in with session persistence
       req.login(user, (err) => {
-        if (err) return next(err);
+        if (err) {
+          console.error("Session error during registration:", err);
+          return next(err);
+        }
 
-        // Return the user without the password
-        const { password, ...userWithoutPassword } = user;
-        res.status(201).json(userWithoutPassword);
+        // Ensure session is fully saved before responding
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("Error saving session during registration:", saveErr);
+            // Continue despite save error
+          }
+
+          // Return the user without the password
+          const { password, ...userWithoutPassword } = user;
+          res.status(201).json(userWithoutPassword);
+        });
       });
     } catch (err) {
       console.error("Registration error:", err);
@@ -205,23 +220,55 @@ export function setupAuth(app: Express) {
         });
       }
 
+      // Login process with better session persistence
       req.login(user, (err) => {
         if (err) {
-          console.error("Session error:", err);
+          console.error("Session error during login:", err);
           return next(err);
         }
 
-        // Return user without the password hash
-        const { password, ...userWithoutPassword } = user;
-        return res.status(200).json(userWithoutPassword);
+        // Make sure session is fully established by forcing a session save
+        req.session.save((saveErr) => {
+          if (saveErr) {
+            console.error("Error saving session during login:", saveErr);
+            // Continue despite save error
+          }
+
+          // Return user without the password hash
+          const { password, ...userWithoutPassword } = user;
+          return res.status(200).json(userWithoutPassword);
+        });
       });
     })(req, res, next);
   });
 
   app.post("/api/logout", (req, res, next) => {
+    // Store session ID for logging
+    const username = req.user ? (req.user as any).username : 'unknown';
+
     req.logout((err) => {
-      if (err) return next(err);
-      res.sendStatus(200);
+      if (err) {
+        console.error("Error during logout:", err);
+        return next(err);
+      }
+
+      // Destroy the session completely for clean logout
+      req.session.destroy((destroyErr) => {
+        if (destroyErr) {
+          console.error("Error destroying session during logout:", destroyErr);
+          // Continue despite error
+        }
+
+        // Clear the session cookie on the client
+        res.clearCookie('stylematch.sid', {
+          path: '/',
+          httpOnly: true,
+          secure: false,
+          sameSite: 'lax'
+        });
+
+        res.sendStatus(200);
+      });
     });
   });
 
