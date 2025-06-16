@@ -15,16 +15,16 @@ export class PostgresStorage implements IStorage {
   private pool: pg.Pool;
 
   constructor() {
-    // Use optimized connection pool settings for better reliability and performance
+    // Connection pool settings for production reliability
     this.pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       ssl: {
         rejectUnauthorized: false // Necessary for some PostgreSQL providers like Neon
       },
-      max: 5, // Reduced maximum clients to avoid hitting connection limits
-      min: 1, // Ensure at least one connection is always ready
-      idleTimeoutMillis: 30000, // 30 seconds idle timeout
-      connectionTimeoutMillis: 15000, // Increased to 15 seconds to avoid timeout issues
+      max: 10, // Increased pool size for better concurrency
+      min: 2, // Maintain minimum connections ready
+      idleTimeoutMillis: 60000, // 1 minute idle timeout - more lenient
+      connectionTimeoutMillis: 30000, // 30 seconds connection timeout - very lenient
       keepAlive: true, // Enable keep-alive to prevent connection drops
       allowExitOnIdle: false, // Don't allow the app to exit while idle connections exist
     });
@@ -108,8 +108,8 @@ export class PostgresStorage implements IStorage {
         schemaName: 'public',
         createTableIfMissing: true,
         pruneSessionInterval: 60 * 60, // Clean expired sessions every hour for better performance
-        // Set session expiration to 60 days to match cookie maxAge
-        ttl: 60 * 60 * 24 * 60, // 60 days in seconds
+        // Set session expiration to 30 days to match cookie maxAge
+        ttl: 30 * 24 * 60 * 60, // 30 days in seconds (aligned with cookie maxAge)
         disableTouch: false, // Make sure sessions are updated on activity
         // Give the store 5 seconds to respond before timing out
         operationTimeout: 5000,

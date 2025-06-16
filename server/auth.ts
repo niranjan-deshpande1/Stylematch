@@ -38,9 +38,9 @@ export function setupAuth(app: Express) {
   const SESSION_SECRET = process.env.SESSION_SECRET || 'stylematch-secure-session-secret-2025';
 
   // Calculate cookie expiration date
-  const expirationDate = new Date();
-  // 30 days × 24 hours × 60 minutes × 60 seconds × 1000 milliseconds
-  expirationDate.setTime(expirationDate.getTime() + (30 * 24 * 60 * 60 * 1000));
+  const sessionMaxAge = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
+  const sessionTTL = Math.floor(sessionMaxAge / 1000); // 30 days in seconds for session store TTL
+  const expirationDate = new Date(Date.now() + sessionMaxAge);
 
   // session settings
   const sessionSettings: session.SessionOptions = {
@@ -52,13 +52,13 @@ export function setupAuth(app: Express) {
     name: 'stylematch.sid',
     proxy: true, // Trust the reverse proxy when secure cookies are in use
     cookie: {
-      maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days in milliseconds
+      maxAge: sessionMaxAge,
       expires: expirationDate,
       // Only use secure in production
       secure: process.env.NODE_ENV === 'production' ? true : false,
       httpOnly: true,
       // Lax allows cookies to be sent with top-level navigations
-      sameSite: 'lax',
+      sameSite: 'lax' as const,
       path: '/', // Make cookie available across the entire site
       domain: undefined
     },
@@ -114,7 +114,7 @@ export function setupAuth(app: Express) {
     done(null, null);
   });
 
-  // Properly type and handle deserialization
+  // load the user from the id stored in the session
   passport.deserializeUser(async (id: string | number, done) => {
     // Convert string ID to number if needed (common serialization issue)
     const userId = typeof id === 'string' ? parseInt(id, 10) : id;
@@ -136,6 +136,7 @@ export function setupAuth(app: Express) {
       done(null, user);
     } catch (err) {
       console.error('Error deserializing user:', err);
+
       // Return false instead of the error to prevent crashes
       done(null, false);
     }

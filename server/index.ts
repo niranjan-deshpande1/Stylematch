@@ -3,6 +3,8 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupAuth } from "./auth";
 import * as db from "./db";
+import { initializeMigrations } from "./migrations";
+import { scheduleAutomaticBackups } from "./backup-restore";
 
 const app = express();
 app.use(express.json());
@@ -72,7 +74,20 @@ app.use((req, res, next) => {
     port,
     host: "0.0.0.0",
     reusePort: true,
-  }, () => {
+  }, async () => {
     log(`serving on port ${port}`);
+
+    // Initialize database migrations and backups
+    try {
+      await initializeMigrations();
+      log(`Database migrations completed successfully`);
+
+      // Schedule automatic backups (every 6 hours)
+      await scheduleAutomaticBackups();
+      log(`Automatic backup system initialized`);
+    } catch (error) {
+      console.error('Failed to initialize database migrations or backups:', error);
+      // Don't crash the server, just log the error
+    }
   });
 })();

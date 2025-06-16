@@ -17,10 +17,30 @@ import OutfitCreator from "@/pages/OutfitCreator";
 import Privacy from "@/pages/Privacy";
 import Terms from "@/pages/Terms";
 import AuthPage from "@/pages/auth-page";
+import ComingSoonPage from "@/pages/coming-soon-page";
+import AdminPage from "@/pages/admin-page";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ProtectedRoute } from "@/lib/protected-route";
+import { useQuery } from "@tanstack/react-query";
 
 function Router() {
+  // Check current site mode
+  const { data: modeData } = useQuery({
+    queryKey: ['site-mode'],
+    queryFn: async () => {
+      const response = await fetch('/api/admin/mode');
+      return response.json();
+    },
+    refetchInterval: 30000, // Check every 30 seconds
+  });
+
+  const isComingSoonMode = modeData?.mode === 'coming-soon';
+
+  // Show coming soon page if mode is set to coming-soon
+  if (isComingSoonMode) {
+    return <ComingSoonPage />;
+  }
+
   return (
     <Layout>
       <PageTransition>
@@ -38,6 +58,8 @@ function Router() {
           <Route path="/auth" component={AuthPage} />
           <Route path="/privacy" component={Privacy} />
           <Route path="/terms" component={Terms} />
+          <Route path="/coming-soon" component={ComingSoonPage} />
+          <Route path="/admin" component={AdminPage} />
           <Route component={NotFound} />
         </Switch>
       </PageTransition>

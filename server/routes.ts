@@ -595,6 +595,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).json({ status: 'healthy' });
   });
 
+  // Email signup endpoint for coming soon page
+  app.post('/api/email-signup', async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body;
+
+      if (!email || typeof email !== 'string') {
+        return res.status(400).json({ message: 'Email is required' });
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ message: 'Invalid email format' });
+      }
+
+      // Save email to file
+      const fs = await import('fs/promises');
+      const path = await import('path');
+
+      const emailsFile = path.join(process.cwd(), 'email-signups.txt');
+      const timestamp = new Date().toISOString();
+      const emailEntry = `${timestamp} - ${email}\n`;
+
+      try {
+        await fs.appendFile(emailsFile, emailEntry, 'utf8');
+        res.json({ message: 'Email saved successfully' });
+      } catch (fileError) {
+        console.error('Error saving email:', fileError);
+        res.status(500).json({ message: 'Failed to save email' });
+      }
+    } catch (error) {
+      console.error('Email signup error:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+
+  // Admin endpoint to toggle coming soon mode
+  app.post('/api/admin/toggle-mode', (req: Request, res: Response) => {
+    try {
+      const { mode } = req.body;
+
+      if (mode !== 'coming-soon' && mode !== 'app') {
+        return res.status(400).json({ message: 'Invalid mode' });
+      }
+
+      process.env.SITE_MODE = mode;
+      res.json({ mode, message: `Site mode set to ${mode}` });
+    } catch (error) {
+      console.error('Mode toggle error:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+
+  // Get current site mode
+  app.get('/api/admin/mode', (req: Request, res: Response) => {
+    const mode = process.env.SITE_MODE || 'app';
+    res.json({ mode });
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

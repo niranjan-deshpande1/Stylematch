@@ -93,6 +93,9 @@ export default function AuthPage() {
   const onLoginSubmit = (values: LoginFormValues) => {
     loginMutation.mutate(values, {
       onSuccess: () => {
+        // Execute iPhone zoom fix after successful login
+        setTimeout(forceIPhoneZoomOut, 300);
+
         const redirectPath = localStorage.getItem("redirectAfterAuth") || "/";
         navigate(redirectPath);
         localStorage.removeItem("redirectAfterAuth");
@@ -107,6 +110,9 @@ export default function AuthPage() {
 
     registerMutation.mutate(registrationData, {
       onSuccess: () => {
+        // Execute iPhone zoom fix after successful registration
+        setTimeout(forceIPhoneZoomOut, 300);
+
         const redirectPath = localStorage.getItem("redirectAfterAuth") || "/";
         navigate(redirectPath);
         localStorage.removeItem("redirectAfterAuth");
@@ -128,6 +134,88 @@ export default function AuthPage() {
   // Function to determine if we're on a mobile device (small screen)
   const isMobileScreen = () => {
     return typeof window !== "undefined" && window.innerWidth < 768;
+  };
+
+  // Function to force zoom out on iPhone
+  const forceIPhoneZoomOut = () => {
+    if (!isMobileScreen()) return;
+
+    // Check if it's likely an iPhone
+    const isIPhone = /iPhone|iPad|iPod/.test(navigator.userAgent);
+
+    // Multiple aggressive methods to force zoom reset
+    const executeZoomReset = () => {
+      // blur all form elements
+      const formElements = document.querySelectorAll('input, textarea, select');
+      formElements.forEach(element => {
+        if (element instanceof HTMLElement) {
+          element.blur();
+        }
+      });
+
+      // temporarily manipulate viewport with forced refresh
+      const viewport = document.querySelector('meta[name="viewport"]');
+      if (viewport) {
+        const originalContent = viewport.getAttribute('content');
+
+        // Force minimum scale to reset zoom
+        viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no');
+
+        // Force DOM reflow
+        document.documentElement.style.zoom = '1';
+        document.body.offsetHeight; // Trigger reflow
+
+        // Additional iPhone-specific reset
+        if (isIPhone) {
+          window.scrollTo(0, 0);
+          setTimeout(() => {
+            window.scrollTo(0, 1);
+            setTimeout(() => {
+              window.scrollTo(0, 0);
+            }, 50);
+          }, 50);
+        }
+
+        // Restore viewport after forced reset
+        setTimeout(() => {
+          viewport.setAttribute('content', originalContent || 'width=device-width, initial-scale=1.0');
+        }, 200);
+      }
+
+      // focus/blur cycle with large font hidden input
+      const resetInput = document.createElement('input');
+      resetInput.style.cssText = `
+        position: absolute;
+        left: -9999px;
+        top: -9999px;
+        width: 1px;
+        height: 1px;
+        font-size: 20px;
+        opacity: 0;
+        pointer-events: none;
+      `;
+      document.body.appendChild(resetInput);
+
+      setTimeout(() => {
+        resetInput.focus();
+        setTimeout(() => {
+          resetInput.blur();
+          if (document.body.contains(resetInput)) {
+            document.body.removeChild(resetInput);
+          }
+        }, 100);
+      }, 150);
+
+      // force window resize event to trigger viewport recalculation
+      setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+      }, 250);
+    };
+
+    // Execute with multiple timing attempts for persistence
+    executeZoomReset();
+    setTimeout(executeZoomReset, 300);
+    setTimeout(executeZoomReset, 600);
   };
 
   // Auto-scroll to the welcome section when component mounts (only on mobile)
