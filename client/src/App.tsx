@@ -59,7 +59,7 @@ function Router() {
           <Route path="/privacy" component={Privacy} />
           <Route path="/terms" component={Terms} />
           <Route path="/coming-soon" component={ComingSoonPage} />
-          <Route path="/admin" component={AdminPage} />
+          <Route path="/admindesh09" component={AdminPage} />
           <Route component={NotFound} />
         </Switch>
       </PageTransition>

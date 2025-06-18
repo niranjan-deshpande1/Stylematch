@@ -1,31 +1,56 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export default function AdminPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [password, setPassword] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Get current site mode
-  const { data: modeData, isLoading } = useQuery({
-    queryKey: ['site-mode'],
+  // Get current site mode (password-protected)
+  const { data: modeData, isLoading, error } = useQuery({
+    queryKey: ['site-mode', password],
     queryFn: async () => {
-      const response = await fetch('/api/admin/mode');
-      return response.json();
-    },
-  });
-
-  // Toggle site mode mutation
-  const toggleModeMutation = useMutation({
-    mutationFn: async (newMode: 'coming-soon' | 'app') => {
-      const response = await fetch('/api/admin/toggle-mode', {
+      if (!password) return null;
+      const response = await fetch('/api/admindesh09/mode', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ mode: newMode }),
+        body: JSON.stringify({ password }),
+      });
+      if (!response.ok) {
+        throw new Error('Invalid password');
+      }
+      const data = await response.json();
+      setIsAuthenticated(true);
+      return data;
+    },
+    enabled: !!password,
+    retry: false
+  });
+
+  // Handle authentication errors with useEffect to prevent infinite re-renders
+  useEffect(() => {
+    if (error && password) {
+      setIsAuthenticated(false);
+    }
+  }, [error, password]);
+
+  // Toggle site mode mutation
+  const toggleModeMutation = useMutation({
+    mutationFn: async (newMode: 'coming-soon' | 'app') => {
+      const response = await fetch('/api/admindesh09/toggle-mode', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mode: newMode, password }),
       });
       
       if (!response.ok) {
@@ -57,6 +82,43 @@ export default function AdminPage() {
 
   const currentMode = modeData?.mode || 'app';
   const isComingSoonMode = currentMode === 'coming-soon';
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 bg-background">
+        <div className="container max-w-md mx-auto">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-center">Admin Access</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="password">Admin Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Enter admin password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && password && queryClient.invalidateQueries({ queryKey: ['site-mode', password] })}
+                />
+              </div>
+              <Button 
+                onClick={() => password && queryClient.invalidateQueries({ queryKey: ['site-mode', password] })}
+                className="w-full"
+                disabled={!password || isLoading}
+              >
+                {isLoading ? 'Authenticating...' : 'Access Admin Panel'}
+              </Button>
+              {error && (
+                <p className="text-sm text-red-500 text-center">Invalid admin password</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (

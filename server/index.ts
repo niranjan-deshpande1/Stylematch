@@ -61,6 +61,9 @@ app.use((req, res, next) => {
     console.error(err);
   });
 
+  // Serve uploaded images statically - must be before catch-all routes
+  app.use('/uploads', express.static('uploads'));
+
   // vite dev server in development, built files in production
   if (app.get("env") === "development") {
     await setupVite(app, server);

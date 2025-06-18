@@ -266,7 +266,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const newItem = await storage.createClothingItem({
         imageUrl,
         category,
-        userId
+        userId,
+        styleTags: []
       });
 
       res.status(201).json(newItem);
@@ -631,10 +632,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin endpoint to toggle coming soon mode
-  app.post('/api/admin/toggle-mode', (req: Request, res: Response) => {
+  // Password-protected admin endpoint to toggle coming soon mode
+  app.post('/api/admindesh09/toggle-mode', (req: Request, res: Response) => {
     try {
-      const { mode } = req.body;
+      const { mode, password } = req.body;
+
+      // Check admin password
+      if (password !== '1234') {
+        return res.status(401).json({ message: 'Invalid admin password' });
+      }
 
       if (mode !== 'coming-soon' && mode !== 'app') {
         return res.status(400).json({ message: 'Invalid mode' });
@@ -648,7 +654,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get current site mode
+  // Password-protected admin mode check
+  app.post('/api/admindesh09/mode', (req: Request, res: Response) => {
+    const { password } = req.body;
+
+    // Check admin password
+    if (password !== '1234') {
+      return res.status(401).json({ message: 'Invalid admin password' });
+    }
+
+    const mode = process.env.SITE_MODE || 'app';
+    res.json({ mode });
+  });
+
+  // Public mode check (no admin access)
   app.get('/api/admin/mode', (req: Request, res: Response) => {
     const mode = process.env.SITE_MODE || 'app';
     res.json({ mode });
