@@ -1,7 +1,8 @@
 import {
   users, type User, type InsertUser,
   inspirationImages, type InspirationImage, type InsertInspirationImage,
-  clothingItems, type ClothingItem, type InsertClothingItem
+  clothingItems, type ClothingItem, type InsertClothingItem,
+  emailSignups, type EmailSignup, type InsertEmailSignup
 } from "@shared/schema";
 import session from "express-session";
 import memorystore from "memorystore";
@@ -39,6 +40,10 @@ export interface IStorage {
   createClothingItem(item: InsertClothingItem): Promise<ClothingItem>;
   updateClothingItemTags(id: number, tags: string[]): Promise<ClothingItem | undefined>;
   deleteClothingItem(id: number): Promise<boolean>;
+
+  // Email signup methods
+  createEmailSignup(email: string): Promise<EmailSignup>;
+  getEmailSignups(): Promise<EmailSignup[]>;
 }
 
 // In-memory storage implementation
@@ -208,6 +213,21 @@ export class MemStorage implements IStorage {
 
   async deleteClothingItem(id: number): Promise<boolean> {
     return this.clothingItems.delete(id);
+  }
+
+  async createEmailSignup(email: string): Promise<EmailSignup> {
+    // For MemStorage, just store in memory (not persistent)
+    const signup: EmailSignup = {
+      id: Date.now(),
+      email,
+      created_at: new Date()
+    };
+    return signup;
+  }
+
+  async getEmailSignups(): Promise<EmailSignup[]> {
+    // For MemStorage, return empty array
+    return [];
   }
 }
 

@@ -1,6 +1,6 @@
 import session from 'express-session';
 import pgSession from 'connect-pg-simple';
-import { User, InsertUser, InspirationImage, InsertInspirationImage, ClothingItem, InsertClothingItem } from '@shared/schema';
+import { User, InsertUser, InspirationImage, InsertInspirationImage, ClothingItem, InsertClothingItem, EmailSignup, InsertEmailSignup } from '@shared/schema';
 import { IStorage } from './storage';
 import * as db from './db';
 import pg from 'pg';
@@ -565,5 +565,42 @@ export class PostgresStorage implements IStorage {
 
   async deleteClothingItem(id: number): Promise<boolean> {
     return db.deleteClothingItem(id);
+  }
+
+  // Email signup methods
+  async createEmailSignup(email: string): Promise<EmailSignup> {
+    try {
+      const query = 'INSERT INTO email_signups (email) VALUES ($1) RETURNING id, email, created_at';
+      const pool = new (require('pg')).Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false }
+      });
+
+      const result = await pool.query(query, [email]);
+      await pool.end();
+
+      return result.rows[0];
+    } catch (error) {
+      console.error('Database email signup failed:', error);
+      throw error;
+    }
+  }
+
+  async getEmailSignups(): Promise<EmailSignup[]> {
+    try {
+      const query = 'SELECT id, email, created_at FROM email_signups ORDER BY created_at DESC';
+      const pool = new (require('pg')).Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false }
+      });
+
+      const result = await pool.query(query);
+      await pool.end();
+
+      return result.rows;
+    } catch (error) {
+      console.error('Database email fetch failed:', error);
+      return [];
+    }
   }
 }

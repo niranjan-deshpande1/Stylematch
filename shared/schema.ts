@@ -18,6 +18,20 @@ export const insertUserSchema = createInsertSchema(users).pick({
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
+// Email signups table for coming soon page
+export const emailSignups = pgTable("email_signups", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertEmailSignupSchema = createInsertSchema(emailSignups).pick({
+  email: true,
+});
+
+export type InsertEmailSignup = z.infer<typeof insertEmailSignupSchema>;
+export type EmailSignup = typeof emailSignups.$inferSelect;
+
 // Style tags are stored as a simple array of strings
 export const inspirationImages = pgTable("inspiration_images", {
   id: serial("id").primaryKey(),

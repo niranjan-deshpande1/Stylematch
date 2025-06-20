@@ -44,6 +44,66 @@ const saveImage = async (buffer: Buffer, prefix: string): Promise<string> => {
 };
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // OPTIONS preflight for CORS - must be first
+  app.options('/api/email-signup', (req, res) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.status(200).end();
+  });
+
+  // Email signup endpoint - direct database storage
+  app.post('/api/email-signup', async (req, res) => {
+    // Set CORS headers for all domains
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Access-Control-Max-Age', '86400');
+
+    try {
+      const { email } = req.body;
+
+      if (!email || typeof email !== 'string') {
+        return res.status(400).json({ message: 'Email is required' });
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ message: 'Invalid email format' });
+      }
+
+      // Save directly to PostgreSQL database
+      try {
+        const result = await storage.createEmailSignup(email);
+
+        // Also save to file as backup
+        const fs = await import('fs/promises');
+        const timestamp = new Date().toISOString();
+        await fs.appendFile('email-signups.txt', `${timestamp} - ${email} - FROM: ${req.get('origin') || 'unknown'}\n`);
+
+        res.json({
+          message: 'Thank you! We will notify you when we launch.',
+          status: 'success'
+        });
+      } catch (dbError) {
+        console.error('Database save failed:', dbError);
+
+        // Fallback to file only
+        const fs = await import('fs/promises');
+        const timestamp = new Date().toISOString();
+        await fs.appendFile('email-signups.txt', `${timestamp} - ${email} - FROM: ${req.get('origin') || 'unknown'}\n`);
+
+        res.json({
+          message: 'Thank you! We will notify you when we launch.',
+          status: 'success'
+        });
+      }
+    } catch (error) {
+      console.error('Email signup error:', error);
+      res.status(500).json({ message: 'Unable to save email right now. Please try again.' });
+    }
+  });
+
   // Authentication is already set up in server/index.ts
 
   // Serve uploaded images
@@ -596,42 +656,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).json({ status: 'healthy' });
   });
 
-  // Email signup endpoint for coming soon page
-  app.post('/api/email-signup', async (req: Request, res: Response) => {
-    try {
-      const { email } = req.body;
-
-      if (!email || typeof email !== 'string') {
-        return res.status(400).json({ message: 'Email is required' });
-      }
-
-      // Validate email format
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        return res.status(400).json({ message: 'Invalid email format' });
-      }
-
-      // Save email to file
-      const fs = await import('fs/promises');
-      const path = await import('path');
-
-      const emailsFile = path.join(process.cwd(), 'email-signups.txt');
-      const timestamp = new Date().toISOString();
-      const emailEntry = `${timestamp} - ${email}\n`;
-
-      try {
-        await fs.appendFile(emailsFile, emailEntry, 'utf8');
-        res.json({ message: 'Email saved successfully' });
-      } catch (fileError) {
-        console.error('Error saving email:', fileError);
-        res.status(500).json({ message: 'Failed to save email' });
-      }
-    } catch (error) {
-      console.error('Email signup error:', error);
-      res.status(500).json({ message: 'Server error' });
-    }
-  });
-
   // Password-protected admin endpoint to toggle coming soon mode
   app.post('/api/admindesh09/toggle-mode', (req: Request, res: Response) => {
     try {
@@ -663,13 +687,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).json({ message: 'Invalid admin password' });
     }
 
-    const mode = process.env.SITE_MODE || 'app';
+    const mode = process.env.SITE_MODE || 'coming-soon';
     res.json({ mode });
   });
 
   // Public mode check (no admin access)
   app.get('/api/admin/mode', (req: Request, res: Response) => {
-    const mode = process.env.SITE_MODE || 'app';
+    const mode = process.env.SITE_MODE || 'coming-soon';
     res.json({ mode });
   });
 
