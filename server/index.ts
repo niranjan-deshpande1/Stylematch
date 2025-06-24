@@ -24,9 +24,9 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// Set default site mode to coming soon unless explicitly set
+// Set default site mode to app unless explicitly set
 if (!process.env.SITE_MODE) {
-  process.env.SITE_MODE = 'coming-soon';
+  process.env.SITE_MODE = 'app';
 }
 
 // Set up authentication with sessions and Passport

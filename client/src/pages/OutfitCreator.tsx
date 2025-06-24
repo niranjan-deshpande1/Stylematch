@@ -232,10 +232,11 @@ export default function OutfitCreator() {
           </div>
         ) : (outfits as OutfitCombination[]).length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {(outfits as OutfitCombination[]).map((outfit: OutfitCombination) => {
+            {(outfits as OutfitCombination[]).map((outfit: OutfitCombination, index: number) => {
               const outfitItems = getOutfitItems(outfit);
+              const outfitKey = outfit.id || `outfit-${index}-${outfit.items?.join('-') || 'unknown'}`;
               return (
-                <Card key={outfit.id} className="bg-zinc-900 border-zinc-800 overflow-hidden hover:border-zinc-700 transition-colors">
+                <Card key={outfitKey} className="bg-zinc-900 border-zinc-800 overflow-hidden hover:border-zinc-700 transition-colors">
                   <CardHeader>
                     <CardTitle className="text-lg font-normal">{outfit.name}</CardTitle>
                     <CardDescription>{outfit.description}</CardDescription>

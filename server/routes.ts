@@ -556,14 +556,100 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get all clothing items from the storage for this user
-      const closetItems = await storage.getClothingItems(userId);
-      if (closetItems.length === 0) {
+      const allClosetItems = await storage.getClothingItems(userId);
+      if (allClosetItems.length === 0) {
         return res.json({ outfits: [] });
+      }
+
+      // Apply filters to clothing items before generating outfits
+      let closetItems = allClosetItems;
+
+      // Filter by style if specified
+      if (style) {
+        closetItems = closetItems.filter(item => {
+          const itemTags = (item.styleTags || []).map((tag: string) => tag.toLowerCase());
+          const itemName = (item.itemName || item.name || '').toLowerCase();
+          return itemTags.includes(style.toLowerCase()) ||
+                 itemName.includes(style.toLowerCase());
+        });
+      }
+
+      // Filter by season if specified
+      if (season && season !== 'all-season') {
+        closetItems = closetItems.filter(item => {
+          const itemTags = (item.styleTags || []).map((tag: string) => tag.toLowerCase());
+          const matches = itemTags.includes(season.toLowerCase());
+          return matches;
+        });
+      }
+
+      // Filter by theme/color if specified
+      if (themeId && themeId !== 'neutral') {
+        closetItems = closetItems.filter(item => {
+          const itemTags = (item.styleTags || []).map((tag: string) => tag.toLowerCase());
+
+          // Always include shoes regardless of theme - they're essential for outfit composition
+          if (item.category === 'shoes') {
+            return true;
+          }
+
+          let matches = false;
+          switch (themeId) {
+            case 'dark':
+              // For dark theme, look for dark color tags and exclude light ones
+              const darkTags = ['black', 'dark', 'charcoal', 'navy', 'grey', 'gray'];
+              const lightTags = ['light wash', 'white', 'cream', 'beige', 'pale', 'bright'];
+
+              // Check for explicit light wash items (should be excluded)
+              const hasLightWash = itemTags.some(tag => tag.includes('light wash'));
+              const hasDarkTags = itemTags.some(tag => darkTags.some(darkTag => tag.includes(darkTag)));
+              const hasLightTags = itemTags.some(tag => lightTags.some(lightTag => tag.includes(lightTag)));
+
+              // Exclude light wash items explicitly, include dark items, allow neutral
+              if (hasLightWash) {
+                matches = false;
+              } else {
+                matches = hasDarkTags || (!hasLightTags);
+              }
+              break;
+
+            case 'monochrome':
+              matches = itemTags.some(tag => ['black', 'white', 'grey', 'gray', 'monochrome'].some(color => tag.includes(color)));
+              break;
+
+            case 'pastel':
+              matches = itemTags.some(tag => ['pastel', 'light', 'soft', 'baby', 'mint', 'lavender', 'pale'].some(color => tag.includes(color)));
+              break;
+
+            case 'vibrant':
+              matches = itemTags.some(tag => ['vibrant', 'bright', 'bold', 'neon', 'red', 'blue', 'yellow', 'colorful'].some(color => tag.includes(color)));
+              break;
+
+            case 'earthy':
+              matches = itemTags.some(tag => ['brown', 'beige', 'khaki', 'olive', 'tan', 'earth', 'natural'].some(color => tag.includes(color)));
+              break;
+
+            default:
+              matches = true;
+          }
+
+          return matches;
+        });
+      }
+
+      // Check if filtering left us with enough items
+      if (closetItems.length === 0) {
+        return res.json({
+          outfits: [],
+          message: "No items match your selected filters. Try adjusting your filter settings."
+        });
       }
 
       const tops = closetItems.filter(item => item.category === 'tops');
       const bottoms = closetItems.filter(item => item.category === 'bottoms');
       const shoes = closetItems.filter(item => item.category === 'shoes');
+      const outerwear = closetItems.filter(item => item.category === 'outerwear');
+      const accessories = closetItems.filter(item => item.category === 'accessories');
 
       // Check if we have the minimum required items to create outfits
       if (tops.length === 0 || bottoms.length === 0) {
@@ -582,10 +668,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Use the OpenAI utility to generate outfits
       const outfits = await generateOutfitCombinations(closetItems, filters);
 
+      // Add unique IDs to each outfit for React keys
+      const outfitsWithIds = outfits.map((outfit, index) => ({
+        ...outfit,
+        id: `outfit_${Date.now()}_${index}_${outfit.items?.join('_') || 'empty'}`
+      }));
+
       // Local validation to enforce outfit composition rules
-      const validatedOutfits = outfits.filter((outfit: any) => {
-        // Convert all item IDs to numbers for consistency
-        const itemIds = outfit.items.map((id: string | number) => typeof id === 'string' ? parseInt(id, 10) : id);
+      const validatedOutfits = outfitsWithIds.filter((outfit: any) => {
+        // Convert all item IDs to numbers and filter out null/undefined values
+        const itemIds = outfit.items
+          .filter((id: any) => id !== null && id !== undefined)
+          .map((id: string | number) => typeof id === 'string' ? parseInt(id, 10) : id);
 
         // Check if outfit has exactly one top
         const hasTop = itemIds.some((id: number) => tops.some(top => top.id === id));
@@ -593,13 +687,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Check if outfit has exactly one bottom
         const hasBottom = itemIds.some((id: number) => bottoms.some(bottom => bottom.id === id));
 
-        // Check if outfit has exactly one shoe (required if shoes are available)
-        const hasShoe = shoes.length > 0 ?
-          itemIds.some((id: number) => shoes.some(shoe => shoe.id === id)) :
-          true; // Skip shoe check if no shoes in closet
+        // exactly one pair of shoes
+        const shoeCount = itemIds.filter((id: number) => shoes.some(shoe => shoe.id === id)).length;
+        const hasValidShoes = shoeCount === 1; // Must have exactly 1 shoe
 
-        // Return true only if outfit meets all requirements
-        return hasTop && hasBottom && hasShoe;
+        // keep it only if it has a top, a bottom and exactly one pair of shoes
+        const isValid = hasTop && hasBottom && hasValidShoes;
+
+        return isValid;
       });
 
       if (validatedOutfits.length === 0) {
@@ -687,13 +782,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).json({ message: 'Invalid admin password' });
     }
 
-    const mode = process.env.SITE_MODE || 'coming-soon';
+    const mode = process.env.SITE_MODE || 'app';
     res.json({ mode });
   });
 
   // Public mode check (no admin access)
   app.get('/api/admin/mode', (req: Request, res: Response) => {
-    const mode = process.env.SITE_MODE || 'coming-soon';
+    const mode = process.env.SITE_MODE || 'app';
     res.json({ mode });
   });
 

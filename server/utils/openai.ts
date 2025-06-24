@@ -238,13 +238,12 @@ export async function generateOutfitCombinations(
     const tops = clothingItems.filter(item => item.category === 'tops');
     const bottoms = clothingItems.filter(item => item.category === 'bottoms');
     const shoes = clothingItems.filter(item => item.category === 'shoes');
+    const outerwear = clothingItems.filter(item => item.category === 'outerwear');
+    const accessories = clothingItems.filter(item => item.category === 'accessories');
 
-    // only send what the model needs
-    const itemDescriptions = clothingItems.map(item => ({
-      id: item.id,
-      category: item.category,
-      styleTags: item.styleTags || []
-    }));
+    // "12 (black, oversized, streetwear); 15 (...)"
+    const describe = (items: any[]) =>
+      items.map(item => `${item.id} (${(item.styleTags || []).join(', ')})`).join('; ') || 'none';
 
     const filterDescription = [];
     if (filters?.style) filterDescription.push(`Style: ${filters.style}`);
@@ -252,38 +251,64 @@ export async function generateOutfitCombinations(
     if (filters?.themeId) filterDescription.push(`Theme: ${filters.themeId}`);
 
     const prompt = `
-    Put together outfits from this closet. Each item has an id, a category and style tags:
-    ${JSON.stringify(itemDescriptions, null, 2)}
+    Put together outfits from this closet. Items are listed as id (style tags).
 
-    The closet has ${tops.length} tops, ${bottoms.length} bottoms and ${shoes.length} pairs of shoes.
-    ${filterDescription.length > 0 ? 'Filters:\n' + filterDescription.join('\n') : 'No filters.'}
+    tops: ${describe(tops)}
+    bottoms: ${describe(bottoms)}
+    shoes: ${describe(shoes)}
+    outerwear: ${describe(outerwear)}
+    accessories: ${describe(accessories)}
+
+    ${filterDescription.length > 0 ? 'The items were already filtered for:\n' + filterDescription.join('\n') + '\nLean into that in the outfits.' : ''}
 
     Rules:
-    - each outfit has one top and one bottom
-    - add one pair of shoes if there are any
-    - follow the filters above
-    - don't repeat the exact same set of items
-    - make up to 8 outfits, fewer is fine if the closet is small
+    - each outfit has exactly one top, one bottom and one pair of shoes
+    - outerwear and accessories are optional, but use them when they fit the look
+    - every outfit uses a different top and bottom pair
+    - pick items whose style tags go together, and think about color and season
+    - only use ids from the lists above
+    - make ${Math.min(tops.length, bottoms.length, 4)} outfits
 
-    For each outfit return a name, a short description, the item ids as numbers, a style, an occasion and a season.
+    For each outfit return:
+    - "name": a short title
+    - "description": a sentence or two on how it's styled
+    - "items": the item ids as numbers
+    - "style", "occasion" and "season"
+
     Respond with JSON only: { "outfits": [{ "name": string, "description": string, "items": number[], "style": string, "occasion": string, "season": string }] }
     `;
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: "You are a stylist putting together outfits from someone's closet."
-        },
-        {
-          role: "user",
-          content: prompt
+    // the api times out now and then, so try a few times
+    let response;
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (attempts < maxAttempts) {
+      try {
+        response = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: "You are a stylist putting together outfits from someone's closet."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          response_format: { type: "json_object" },
+          max_tokens: 1500,
+        });
+        break;
+      } catch (retryError: any) {
+        attempts++;
+        if (attempts >= maxAttempts) {
+          throw retryError;
         }
-      ],
-      response_format: { type: "json_object" },
-      max_tokens: 1500,
-    });
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+      }
+    }
 
     let data;
     try {
@@ -299,15 +324,33 @@ export async function generateOutfitCombinations(
 
     const outfits = data.outfits || [];
 
-    // drop exact duplicates
+    // the model doesn't always follow the rules, so check every outfit
     const uniqueOutfits = [];
     const seenCombinations = new Set();
+    const seenTopBottomPairs = new Set();
 
     for (const outfit of outfits) {
-      outfit.items = outfit.items.map((id: any) => typeof id === 'string' ? parseInt(id, 10) : id);
+      outfit.items = outfit.items
+        .filter((id: any) => id !== null && id !== undefined)
+        .map((id: any) => typeof id === 'string' ? parseInt(id, 10) : id);
+
+      const outfitTops = outfit.items.filter((id: number) => tops.some(t => t.id === id));
+      const outfitBottoms = outfit.items.filter((id: number) => bottoms.some(b => b.id === id));
+      const outfitShoes = outfit.items.filter((id: number) => shoes.some(s => s.id === id));
+
+      if (outfitTops.length !== 1 || outfitBottoms.length !== 1 || outfitShoes.length !== 1) {
+        continue;
+      }
+
+      const topBottomPair = `${outfitTops[0]}-${outfitBottoms[0]}`;
+      if (seenTopBottomPairs.has(topBottomPair)) {
+        continue;
+      }
+
       const signature = [...outfit.items].sort().join(',');
       if (!seenCombinations.has(signature)) {
         seenCombinations.add(signature);
+        seenTopBottomPairs.add(topBottomPair);
         uniqueOutfits.push(outfit);
       }
     }
@@ -330,6 +373,10 @@ export async function generateOutfitCombinations(
     // Check if this is a quota or rate limit error
     if (error.status === 429 || (error.error && error.error.type === 'insufficient_quota')) {
       throw new Error("AI service quota exceeded. Please try again later or contact support to upgrade your plan.");
+    }
+
+    if (error.status === 404 || error.status === 502 || error.status === 503) {
+      throw new Error("OpenAI API temporarily unavailable. Please try again in a moment.");
     }
 
     throw new Error("Failed to generate outfit combinations");
