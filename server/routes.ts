@@ -565,26 +565,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let closetItems = allClosetItems;
 
       // Filter by style if specified
-      if (style) {
+      if (style && style.trim() !== '') {
         closetItems = closetItems.filter(item => {
           const itemTags = (item.styleTags || []).map((tag: string) => tag.toLowerCase());
-          const itemName = (item.itemName || item.name || '').toLowerCase();
-          return itemTags.includes(style.toLowerCase()) ||
-                 itemName.includes(style.toLowerCase());
+          const matches = itemTags.includes(style.toLowerCase());
+          return matches;
         });
       }
 
       // Filter by season if specified
-      if (season && season !== 'all-season') {
+      if (season && season.trim() !== '' && season !== 'all-season') {
         closetItems = closetItems.filter(item => {
           const itemTags = (item.styleTags || []).map((tag: string) => tag.toLowerCase());
           const matches = itemTags.includes(season.toLowerCase());
           return matches;
         });
+
+        // For fall/winter: enforce outerwear + no shorts
+        if (season === 'fall' || season === 'winter') {
+          const outerwearItems = closetItems.filter(item => item.category === 'outerwear');
+          const pantsItems = closetItems.filter(item => item.category === 'bottoms' && !item.styleTags?.some(tag => tag.includes('shorts')));
+
+          if (outerwearItems.length === 0) {
+            return res.json({
+              outfits: [],
+              message: `Fall/Winter outfits require outerwear. Add jackets, hoodies, or coats to your closet.`
+            });
+          }
+
+          if (pantsItems.length === 0) {
+            return res.json({
+              outfits: [],
+              message: `Fall/Winter outfits require pants (no shorts). Add pants or jeans to your closet.`
+            });
+          }
+
+          // Filter out shorts from bottoms for fall/winter
+          closetItems = closetItems.filter(item => {
+            if (item.category === 'bottoms') {
+              return !item.styleTags?.some(tag => tag.includes('shorts'));
+            }
+            return true;
+          });
+        }
       }
 
       // Filter by theme/color if specified
-      if (themeId && themeId !== 'neutral') {
+      if (themeId && themeId.trim() !== '' && themeId !== 'neutral') {
         closetItems = closetItems.filter(item => {
           const itemTags = (item.styleTags || []).map((tag: string) => tag.toLowerCase());
 
@@ -596,37 +623,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
           let matches = false;
           switch (themeId) {
             case 'dark':
-              // For dark theme, look for dark color tags and exclude light ones
-              const darkTags = ['black', 'dark', 'charcoal', 'navy', 'grey', 'gray'];
-              const lightTags = ['light wash', 'white', 'cream', 'beige', 'pale', 'bright'];
-
-              // Check for explicit light wash items (should be excluded)
-              const hasLightWash = itemTags.some(tag => tag.includes('light wash'));
-              const hasDarkTags = itemTags.some(tag => darkTags.some(darkTag => tag.includes(darkTag)));
-              const hasLightTags = itemTags.some(tag => lightTags.some(lightTag => tag.includes(lightTag)));
-
-              // Exclude light wash items explicitly, include dark items, allow neutral
-              if (hasLightWash) {
-                matches = false;
-              } else {
-                matches = hasDarkTags || (!hasLightTags);
-              }
+              // Dark palette: similar to monochrome but excluding white
+              const darkPaletteColors = ['black', 'gray', 'grey', 'burgundy', 'brown'];
+              const lightPaletteColors = ['white', 'light blue', 'cream', 'beige', 'tan'];
+              matches = itemTags.some(tag => darkPaletteColors.some(dark => tag.includes(dark))) ||
+                       !itemTags.some(tag => lightPaletteColors.some(light => tag.includes(light)));
               break;
 
             case 'monochrome':
-              matches = itemTags.some(tag => ['black', 'white', 'grey', 'gray', 'monochrome'].some(color => tag.includes(color)));
+              // 50% lenient: mainly black, white, gray but some flexibility
+              const monochromeColors = ['black', 'white', 'grey', 'gray'];
+              const coloredItems = ['blue', 'red', 'burgundy', 'brown', 'tan', 'beige', 'taupe'];
+              const hasMonochrome = itemTags.some(tag => monochromeColors.some(mono => tag.includes(mono)));
+              const hasColor = itemTags.some(tag => coloredItems.some(colored => tag.includes(colored)));
+              // Include if has monochrome colors OR doesn't have obvious colors (50% lenient)
+              matches = hasMonochrome || !hasColor;
               break;
 
             case 'pastel':
-              matches = itemTags.some(tag => ['pastel', 'light', 'soft', 'baby', 'mint', 'lavender', 'pale'].some(color => tag.includes(color)));
+              // Somewhat strict: lighter colors on the spectrum
+              const pastelColors = ['white', 'light blue', 'beige', 'taupe', 'cream'];
+              const pastelDarkColors = ['black', 'burgundy', 'brown'];
+              matches = itemTags.some(tag => pastelColors.some(pastel => tag.includes(pastel))) ||
+                       !itemTags.some(tag => pastelDarkColors.some(dark => tag.includes(dark)));
               break;
 
             case 'vibrant':
-              matches = itemTags.some(tag => ['vibrant', 'bright', 'bold', 'neon', 'red', 'blue', 'yellow', 'colorful'].some(color => tag.includes(color)));
+              // Include bright and bold colors
+              const vibrantColors = ['red', 'burgundy', 'blue'];
+              const neutrals = ['white', 'black', 'gray', 'grey'];
+              matches = itemTags.some(tag => vibrantColors.some(vibrant => tag.includes(vibrant))) ||
+                       itemTags.some(tag => neutrals.some(neutral => tag.includes(neutral))); // neutrals can complement vibrant
               break;
 
             case 'earthy':
-              matches = itemTags.some(tag => ['brown', 'beige', 'khaki', 'olive', 'tan', 'earth', 'natural'].some(color => tag.includes(color)));
+              // Check for earthy tags or earthy colors (including denim)
+              const earthyToneCheck = itemTags.some(tag => ['earthy', 'earth tone'].some(earthy => tag.includes(earthy)));
+              const earthyColors = ['brown', 'tan', 'beige', 'taupe', 'denim', 'blue']; // denim is earthy
+              const earthyColorCheck = itemTags.some(tag => earthyColors.some(earthy => tag.includes(earthy)));
+              matches = earthyToneCheck || earthyColorCheck;
+              break;
+
+            case 'cool':
+              // Cool tones: check for cool tone tags or cool colors
+              const coolToneCheck = itemTags.some(tag => ['cool', 'cool tone'].some(cool => tag.includes(cool)));
+              const coolColors = ['blue', 'light blue', 'gray', 'grey'];
+              const coolColorCheck = itemTags.some(tag => coolColors.some(cool => tag.includes(cool)));
+              matches = coolToneCheck || coolColorCheck;
+              break;
+
+            case 'warm':
+              // Warm tones: check for warm tone tags or warm colors
+              const warmToneCheck = itemTags.some(tag => ['warm', 'earth tone'].some(warm => tag.includes(warm)));
+              const warmColors = ['red', 'burgundy', 'brown', 'tan'];
+              const warmColorCheck = itemTags.some(tag => warmColors.some(warm => tag.includes(warm)));
+              matches = warmToneCheck || warmColorCheck;
+              break;
+
+            case 'neutral':
+              // Somewhat lenient but similar to monochrome
+              const neutralColors = ['black', 'white', 'grey', 'gray', 'beige', 'tan', 'taupe'];
+              const brightColors = ['blue', 'red', 'burgundy'];
+              matches = itemTags.some(tag => neutralColors.some(neutral => tag.includes(neutral))) ||
+                       !itemTags.some(tag => brightColors.some(bright => tag.includes(bright)));
               break;
 
             default:
@@ -637,12 +696,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Check if filtering left us with enough items
+      // Check if filtering left us with enough items - implement fallback logic
       if (closetItems.length === 0) {
-        return res.json({
-          outfits: [],
-          message: "No items match your selected filters. Try adjusting your filter settings."
-        });
+        // Fallback: try with just style or season filter, not both
+        if (style && season && season !== 'all-season') {
+          closetItems = allClosetItems.filter(item => {
+            const itemTags = (item.styleTags || []).map((tag: string) => tag.toLowerCase());
+            return itemTags.includes(style.toLowerCase());
+          });
+        } else if (season && season !== 'all-season') {
+          closetItems = allClosetItems.filter(item => {
+            const itemTags = (item.styleTags || []).map((tag: string) => tag.toLowerCase());
+            return itemTags.includes(season.toLowerCase());
+          });
+        } else {
+          closetItems = allClosetItems;
+        }
+
+        if (closetItems.length === 0) {
+          return res.json({
+            outfits: [],
+            message: "No items available for outfit generation. Please add more clothing items to your closet."
+          });
+        }
       }
 
       const tops = closetItems.filter(item => item.category === 'tops');

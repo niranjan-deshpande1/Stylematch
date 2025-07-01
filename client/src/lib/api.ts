@@ -137,9 +137,9 @@ export async function getOutfitCombinations(options?: {
 
   if (options) {
     const params = new URLSearchParams();
-    if (options.style) params.append('style', options.style);
-    if (options.season) params.append('season', options.season);
-    if (options.themeId) params.append('themeId', options.themeId);
+    if (options.style && options.style.trim() !== '') params.append('style', options.style);
+    if (options.season && options.season.trim() !== '') params.append('season', options.season);
+    if (options.themeId && options.themeId.trim() !== '') params.append('themeId', options.themeId);
 
     const queryString = params.toString();
     if (queryString) {
