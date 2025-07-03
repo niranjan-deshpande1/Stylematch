@@ -56,7 +56,7 @@ export default function ScrollToTop() {
   // Handle different scroll behavior on specific pages
   useEffect(() => {
     // Pages that might need special handling
-    if (location.includes('outfit-ideas') || location.includes('outfits')) {
+    if (location.includes('outfit-creator') || location.includes('outfits')) {
       // Force visibility check after content loads
       const timer = setTimeout(() => {
         const scrollListener = createScrollListener();

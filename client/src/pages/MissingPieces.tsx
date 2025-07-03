@@ -381,9 +381,9 @@ export default function MissingPieces() {
               <p className="text-zinc-400 mb-8 max-w-md mx-auto">
                 you already have all the pieces needed for this look
               </p>
-              <Link href="/outfit-ideas">
+              <Link href="/outfit-creator">
                 <Button className="bg-black hover:bg-zinc-900 text-zinc-300 border border-zinc-800 px-6 py-5 text-sm">
-                  browse outfit ideas
+                  create outfits
                 </Button>
               </Link>
             </div>

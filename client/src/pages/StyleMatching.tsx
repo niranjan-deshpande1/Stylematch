@@ -193,7 +193,7 @@ export default function StyleMatching() {
               {matchingItems.length > 0 && (
                 <Button 
                   className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 transition-all duration-300 shadow-lg group hover:shadow-blue-900/20"
-                  onClick={() => setLocation('/outfit-ideas')}
+                  onClick={() => setLocation('/outfit-creator')}
                 >
                   <Sparkles className="mr-2 h-4 w-4 transition-transform duration-300 group-hover:scale-110" />
                   <span className="relative overflow-hidden">

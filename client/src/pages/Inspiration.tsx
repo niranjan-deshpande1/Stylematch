@@ -5,7 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { PlusCircle, Sparkles, ImageOff, ImageIcon, Camera, Trash } from "lucide-react";
+import { PlusCircle, Sparkles, ImageOff, ImageIcon, Camera, Trash, BookmarkPlus, BookmarkMinus } from "lucide-react";
 import { deleteInspirationImage } from "@/lib/api";
 import type { InspirationImage } from "@shared/schema";
 

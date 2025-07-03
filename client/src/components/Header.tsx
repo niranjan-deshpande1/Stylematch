@@ -79,7 +79,7 @@ export default function Header() {
           </Link>
           <Link href="/outfit-creator">
             <span className={`text-sm font-medium hover:text-gray-400 transition-colors ${location === '/outfit-creator' ? 'text-white underline' : 'text-gray-300'}`}>
-              outfit ideas
+              outfit creator
             </span>
           </Link>
           <Link href="/inspiration">
@@ -209,7 +209,7 @@ export default function Header() {
                     }, 750);
                   }}>
                     <span className={`text-sm font-medium hover:text-gray-400 transition-colors ${location === '/outfit-creator' ? 'text-white underline' : 'text-gray-300'}`}>
-                      outfit ideas
+                      outfit creator
                     </span>
                   </Link>
                   <Link href="/inspiration" onClick={() => {

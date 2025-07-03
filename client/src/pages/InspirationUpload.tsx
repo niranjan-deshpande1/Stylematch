@@ -161,12 +161,12 @@ export default function InspirationUpload() {
                     </div>
                   )}
                   <div className="mt-4 pt-4 border-t border-zinc-800 space-y-2">
-                    {styleTags.length > 0 && (
+                    {uploadedImageId && (
                       <Button 
                         className="w-full py-3 bg-black hover:bg-zinc-900 text-zinc-300 border border-zinc-800 text-sm transition-colors"
                         asChild
                       >
-                        <a href={`/outfits?tags=${styleTags.join(',')}`}>
+                        <a href={`/inspiration/${uploadedImageId}/style-matching`}>
                           <i className="fas fa-tshirt mr-2"></i> find matching items in your closet
                         </a>
                       </Button>
