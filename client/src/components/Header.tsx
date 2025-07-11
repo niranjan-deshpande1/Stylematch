@@ -87,6 +87,11 @@ export default function Header() {
               inspiration
             </span>
           </Link>
+          <Link href="/shopping">
+            <span className={`text-sm font-medium hover:text-gray-400 transition-colors ${location === '/shopping' ? 'text-white underline' : 'text-gray-300'}`}>
+              shopping
+            </span>
+          </Link>
         </nav>
 
         {/* Account section - hidden on very small screens */}

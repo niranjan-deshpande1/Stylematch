@@ -5,6 +5,7 @@ import multer from "multer";
 import fs from "fs";
 import path from "path";
 import { analyzeClothingImage, analyzeOutfitImage, identifyMissingPieces, generateOutfitCombinations } from "./utils/openai";
+import { generateShoppingRecommendations, generateMissingPieceRecommendations, generateInspirationShoppingRecommendations } from "./utils/shopping";
 import { setupAuth, isAuthenticated } from "./auth";
 import {
   clothingCategories,
@@ -13,7 +14,8 @@ import {
   OutfitCombination,
   OutfitCombinationsResponse,
   StyleMatchingResponse,
-  InspirationImage
+  InspirationImage,
+  ShoppingRecommendationsResponse
 } from "@shared/schema";
 
 // Define a new Request type that includes multer's file property
@@ -113,17 +115,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.sendFile(filepath);
   });
 
-  // Get all inspiration images - always return content regardless of auth status
+  // Get all inspiration images - SECURE: Only return user's own data
   app.get('/api/inspiration', async (req, res) => {
     try {
-      // not logged in, so use the guest id
-      // This ensures content is always available regardless of login status
-      const userId = req.user?.id || 9999;
+      // SECURITY FIX: Only return user's own data
+      const userId = req.user?.id;
 
-      // Get images with this userId (either actual user or guest user)
+      if (!userId) {
+        // For unauthenticated users, return empty array (no shared data)
+        return res.json([]);
+      }
+
+      // Get images only for the authenticated user
       const images = await storage.getInspirationImages(userId);
 
-      // Always return images, even if the array is empty
       res.json(images);
     } catch (error) {
       console.error('Error fetching inspiration images:', error);
@@ -131,20 +136,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Helper to get user ID from request
+  // Helper to get user ID from request - SECURE VERSION
   const getUserId = (req: Request): number | null => {
-    // Check if the user is logged in
-    if (req.user?.id) {
-      // Authenticated user, return their actual ID
-      return req.user.id;
-    } else if (req.headers['x-guest-mode'] === 'true' || req.query.guestMode === 'true') {
-      // For guest users, use a designated guest ID (9999)
-      // This ensures guest content doesn't interfere with real users
-      return 9999;
-    }
-
-    // User is neither authenticated nor in guest mode
-    return null;
+    // SECURITY FIX: Only return actual authenticated user ID
+    // No shared guest pools - users must be authenticated
+    return req.user?.id || null;
   };
 
   // Upload inspiration image
@@ -417,17 +413,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/inspiration/:id/missing-pieces', async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      const userId = getUserId(req);
 
-      // Check for guest mode directly (similar to our updated inspiration endpoint)
-      const isGuestMode = req.headers['x-guest-mode'] === 'true' || req.query.guestMode === 'true';
-
-      // Get user ID, defaulting to guest ID in guest mode
-      let userId = req.user?.id as number | null;
-      if (isGuestMode && !userId) {
-        userId = 9999; // Guest mode ID
-      }
-
-      // If there's no user ID at this point, we're not in guest mode and not authenticated
       if (userId === null) {
         return res.status(401).json({ message: 'Authentication required' });
       }
@@ -453,7 +440,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Identify missing pieces with OpenAI
       const missingPieces = await identifyMissingPieces(base64Image, userClosetTags);
 
-      res.json({ missingPieces });
+      // Generate shopping recommendations for missing pieces
+      const shoppingRecommendations = await generateMissingPieceRecommendations(
+        missingPieces.map(piece => piece.description),
+        image.styleTags || []
+      );
+
+      res.json({
+        missingPieces,
+        shoppingRecommendations
+      });
     } catch (error) {
       console.error('Error identifying missing pieces:', error);
       res.status(500).json({ message: 'Failed to identify missing pieces' });
@@ -866,6 +862,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/mode', (req: Request, res: Response) => {
     const mode = process.env.SITE_MODE || 'app';
     res.json({ mode });
+  });
+
+  // Shopping recommendations API
+  app.get('/api/shopping/recommendations', async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const query = req.query.q as string;
+      const category = req.query.category as string;
+      const maxResults = parseInt(req.query.limit as string) || 8;
+
+      if (!query) {
+        return res.status(400).json({ message: 'Search query is required' });
+      }
+
+      const recommendations = await generateShoppingRecommendations(query, category, maxResults);
+      res.json(recommendations);
+    } catch (error) {
+      console.error('Error generating shopping recommendations:', error);
+      res.status(500).json({ message: 'Failed to generate recommendations', error: error.message });
+    }
+  });
+
+  // Get shopping recommendations based on inspiration image
+  app.get('/api/inspiration/:id/shopping', async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const userId = getUserId(req);
+
+      if (!userId) {
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+
+      const image = await storage.getInspirationImage(id, userId);
+      if (!image) {
+        return res.status(404).json({ message: 'Inspiration image not found' });
+      }
+
+      // Get user's existing closet to avoid duplicate recommendations
+      const clothingItems = await storage.getClothingItems(userId);
+      const existingTags = clothingItems.flatMap(item => item.styleTags || []);
+
+      const recommendations = await generateInspirationShoppingRecommendations(
+        image.styleTags || [],
+        existingTags
+      );
+
+      res.json(recommendations);
+    } catch (error) {
+      console.error('Error generating inspiration shopping recommendations:', error);
+      res.status(500).json({ message: 'Failed to generate recommendations' });
+    }
   });
 
   const httpServer = createServer(app);

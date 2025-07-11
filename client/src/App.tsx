@@ -14,6 +14,7 @@ import OutfitIdeas from "@/pages/OutfitIdeas";
 import MissingPieces from "@/pages/MissingPieces";
 import StyleMatching from "@/pages/StyleMatching";
 import OutfitCreator from "@/pages/OutfitCreator";
+import Shopping from "@/pages/Shopping";
 import Privacy from "@/pages/Privacy";
 import Terms from "@/pages/Terms";
 import AuthPage from "@/pages/auth-page";
@@ -55,6 +56,7 @@ function Router() {
           <ProtectedRoute path="/inspiration/:id/missing-pieces" component={MissingPieces} />
           <ProtectedRoute path="/inspiration/:id/style-matching" component={StyleMatching} />
           <ProtectedRoute path="/outfit-creator" component={OutfitCreator} />
+          <ProtectedRoute path="/shopping" component={Shopping} />
           <Route path="/auth" component={AuthPage} />
           <Route path="/privacy" component={Privacy} />
           <Route path="/terms" component={Terms} />

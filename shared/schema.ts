@@ -141,3 +141,30 @@ export const StyleMatchingResponse = z.object({
 });
 
 export type StyleMatchingResponse = z.infer<typeof StyleMatchingResponse>;
+
+// Shopping product recommendations
+export const ProductRecommendationSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  brand: z.string(),
+  price: z.number(),
+  currency: z.string().default('USD'),
+  imageUrl: z.string(),
+  productUrl: z.string(),
+  description: z.string(),
+  category: z.string(),
+  styleTags: z.array(z.string()),
+  matchScore: z.number().min(0).max(100),
+  matchReason: z.string()
+});
+
+export type ProductRecommendation = z.infer<typeof ProductRecommendationSchema>;
+
+export const ShoppingRecommendationsResponse = z.object({
+  recommendations: z.array(ProductRecommendationSchema),
+  totalCount: z.number(),
+  searchQuery: z.string(),
+  category: z.string().optional()
+});
+
+export type ShoppingRecommendationsResponse = z.infer<typeof ShoppingRecommendationsResponse>;
