@@ -864,11 +864,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ mode });
   });
 
-  // Shopping recommendations API
+  // Shopping recommendations API - Available for guest users
   app.get('/api/shopping/recommendations', async (req, res) => {
     try {
       const userId = getUserId(req);
-      if (!userId) {
+      const isGuestMode = req.headers['x-guest-mode'] === 'true';
+
+      // Allow both authenticated users and guest mode users
+      if (!userId && !isGuestMode) {
         return res.status(401).json({ message: 'Authentication required' });
       }
 

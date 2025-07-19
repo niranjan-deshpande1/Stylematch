@@ -220,7 +220,7 @@ export class MemStorage implements IStorage {
     const signup: EmailSignup = {
       id: Date.now(),
       email,
-      created_at: new Date()
+      createdAt: new Date()
     };
     return signup;
   }
