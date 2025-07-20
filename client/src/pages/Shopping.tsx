@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,11 +7,21 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Search, ExternalLink, ShoppingCart } from 'lucide-react';
 import { ProductRecommendation, ShoppingRecommendationsResponse, clothingCategories } from '@shared/schema';
+import { setGuestMode, isGuestMode } from '@/lib/api';
+import { useAuth } from '@/hooks/use-auth';
 
 export default function Shopping() {
   const [searchQuery, setSearchQuery] = useState('');
   const [category, setCategory] = useState<string>('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
+  const { isAuthenticated } = useAuth();
+
+  // Enable guest mode if user is not authenticated
+  useEffect(() => {
+    if (!isAuthenticated && !isGuestMode()) {
+      setGuestMode(true);
+    }
+  }, [isAuthenticated]);
 
   // Debounce search query
   const handleSearch = (query: string) => {
@@ -25,17 +35,6 @@ export default function Shopping() {
   const { data: recommendations, isLoading, error } = useQuery<ShoppingRecommendationsResponse>({
     queryKey: ['/api/shopping/recommendations', debouncedQuery, category],
     enabled: debouncedQuery.length > 2,
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      params.append('q', debouncedQuery);
-      if (category && category !== 'all') params.append('category', category);
-      
-      const response = await fetch(`/api/shopping/recommendations?${params}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch recommendations');
-      }
-      return response.json();
-    },
   });
 
   const handleProductClick = (product: ProductRecommendation) => {
