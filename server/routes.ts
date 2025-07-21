@@ -15,7 +15,11 @@ import {
   OutfitCombinationsResponse,
   StyleMatchingResponse,
   InspirationImage,
-  ShoppingRecommendationsResponse
+  ShoppingRecommendationsResponse,
+  SwipeResponse,
+  StyleProfileResponse,
+  insertUserSwipeSchema,
+  insertUserStyleProfileSchema
 } from "@shared/schema";
 
 // Define a new Request type that includes multer's file property
@@ -887,7 +891,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(recommendations);
     } catch (error) {
       console.error('Error generating shopping recommendations:', error);
-      res.status(500).json({ message: 'Failed to generate recommendations', error: error.message });
+      res.status(500).json({ message: 'Failed to generate recommendations', error: (error as Error).message });
     }
   });
 
@@ -920,6 +924,201 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error('Error generating inspiration shopping recommendations:', error);
       res.status(500).json({ message: 'Failed to generate recommendations' });
     }
+  });
+
+  // Swipe onboarding API - Record user swipe preferences
+  app.post('/api/swipe', async (req, res) => {
+    try {
+      const { image_id, swipe_direction, style_tags, session_id, user_id } = req.body;
+
+      // Validate input
+      if (!image_id || !swipe_direction || !style_tags || !session_id) {
+        return res.status(400).json({ message: 'Missing required fields' });
+      }
+
+      if (!['like', 'dislike'].includes(swipe_direction)) {
+        return res.status(400).json({ message: 'Invalid swipe direction' });
+      }
+
+      // Store swipe data
+      const swipeData = {
+        userId: user_id || null,
+        sessionId: session_id,
+        imageId: image_id,
+        swipeDirection: swipe_direction,
+        styleTags: Array.isArray(style_tags) ? style_tags : [],
+      };
+
+      await storage.createUserSwipe(swipeData);
+
+      res.json({ success: true, message: 'Swipe recorded successfully' });
+    } catch (error) {
+      console.error('Error recording swipe:', error);
+      res.status(500).json({ message: 'Failed to record swipe' });
+    }
+  });
+
+  // Generate style profile from swipe data
+  app.post('/api/generate-style-profile', async (req, res) => {
+    try {
+      const { session_id, user_id } = req.body;
+
+      if (!session_id) {
+        return res.status(400).json({ message: 'Session ID required' });
+      }
+
+      // Get all swipes for this session
+      const swipes = await storage.getUserSwipes(session_id, user_id);
+
+      if (swipes.length === 0) {
+        return res.status(400).json({ message: 'No swipe data found for session' });
+      }
+
+      // Calculate style vector from swipe data
+      const likedTags = swipes
+        .filter(swipe => swipe.swipeDirection === 'like')
+        .flatMap(swipe => swipe.styleTags);
+
+      const dislikedTags = swipes
+        .filter(swipe => swipe.swipeDirection === 'dislike')
+        .flatMap(swipe => swipe.styleTags);
+
+      // Create style vector (simple frequency-based scoring)
+      const styleVector: Record<string, number> = {};
+      const allTags = Array.from(new Set([...likedTags, ...dislikedTags]));
+
+      allTags.forEach(tag => {
+        const likes = likedTags.filter(t => t === tag).length;
+        const dislikes = dislikedTags.filter(t => t === tag).length;
+        const total = likes + dislikes;
+
+        if (total > 0) {
+          styleVector[tag] = likes / total; // Score between 0 and 1
+        }
+      });
+
+      // Generate AI summary using OpenAI
+      let summaryText = "Your style is uniquely yours.";
+      try {
+        const { generateStyleSummary } = await import('./utils/openai');
+        summaryText = await generateStyleSummary(styleVector);
+      } catch (openaiError) {
+        console.error('OpenAI summary generation failed, using fallback:', openaiError);
+        // Create rule-based summary as fallback
+        const topStyles = Object.entries(styleVector)
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 3)
+          .map(([style]) => style);
+
+        if (topStyles.length > 0) {
+          summaryText = `You gravitate toward ${topStyles.slice(0, -1).join(', ')}${topStyles.length > 1 ? ' and ' : ''}${topStyles[topStyles.length - 1]} styles. Your aesthetic reflects a blend of these preferences.`;
+        }
+      }
+
+      // Calculate confidence score
+      const confidenceScore = Math.min(swipes.length / 10, 1.0); // Max confidence at 10+ swipes
+
+      // Store style profile
+      const profileData = {
+        userId: user_id || null,
+        sessionId: session_id,
+        styleVector,
+        summaryText,
+        confidenceScore
+      };
+
+      await storage.createUserStyleProfile(profileData);
+
+      const response: StyleProfileResponse = {
+        styleVector,
+        summaryText,
+        confidenceScore,
+        swipeCount: swipes.length
+      };
+
+      res.json(response);
+    } catch (error) {
+      console.error('Error generating style profile:', error);
+      res.status(500).json({ message: 'Failed to generate style profile' });
+    }
+  });
+
+  // Get style profile for a session
+  app.get('/api/style-profile', async (req, res) => {
+    try {
+      const session_id = req.query.session as string;
+      const userId = getUserId(req);
+
+      if (!session_id) {
+        return res.status(400).json({ message: 'Session ID required' });
+      }
+
+      const profile = await storage.getUserStyleProfile(session_id, userId || undefined);
+
+      if (!profile) {
+        return res.status(404).json({ message: 'Style profile not found' });
+      }
+
+      // Get swipe count for this session
+      const swipes = await storage.getUserSwipes(session_id, userId || undefined);
+
+      const response: StyleProfileResponse = {
+        styleVector: profile.styleVector as Record<string, number>,
+        summaryText: profile.summaryText || "Your style is uniquely yours.",
+        confidenceScore: profile.confidenceScore || 0,
+        swipeCount: swipes.length
+      };
+
+      res.json(response);
+    } catch (error) {
+      console.error('Error fetching style profile:', error);
+      res.status(500).json({ message: 'Failed to fetch style profile' });
+    }
+  });
+
+  // generated style cards for the swipe onboarding
+  app.get('/api/style-card/:styleId', (req: Request, res: Response) => {
+    const { styleId } = req.params;
+
+    // Style name mapping for better display
+    const styleNames: { [key: string]: string } = {
+      'minimal-1': 'Minimal Chic',
+      'boho-1': 'Boho Vibes',
+      'streetwear-1': 'Streetwear',
+      'classic-1': 'Classic Style',
+      'edgy-1': 'Edgy Look',
+      'techwear-1': 'Techwear',
+      'romantic-1': 'Romantic',
+      'vintage-1': 'Vintage',
+      'athleisure-1': 'Athleisure',
+      'formal-1': 'Formal'
+    };
+
+    const styleName = styleNames[styleId] || 'Style';
+
+    // gradient card with the style name on it
+    const svg = `
+      <svg width="400" height="600" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#8B5CF6;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#EC4899;stop-opacity:1" />
+          </linearGradient>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grad)"/>
+        <rect x="50" y="50" width="300" height="500" fill="rgba(255,255,255,0.1)" rx="20"/>
+        <text x="200" y="320" text-anchor="middle" fill="white" font-size="24" font-family="Arial, sans-serif" font-weight="bold">
+          ${styleName}
+        </text>
+        <text x="200" y="350" text-anchor="middle" fill="rgba(255,255,255,0.8)" font-size="14" font-family="Arial, sans-serif">
+          Outfit Inspiration
+        </text>
+      </svg>
+    `;
+
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(svg);
   });
 
   const httpServer = createServer(app);

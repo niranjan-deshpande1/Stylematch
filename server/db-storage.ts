@@ -1,6 +1,6 @@
 import session from 'express-session';
 import pgSession from 'connect-pg-simple';
-import { User, InsertUser, InspirationImage, InsertInspirationImage, ClothingItem, InsertClothingItem, EmailSignup, InsertEmailSignup } from '@shared/schema';
+import { User, InsertUser, InspirationImage, InsertInspirationImage, ClothingItem, InsertClothingItem, EmailSignup, InsertEmailSignup, UserSwipe, InsertUserSwipe, UserStyleProfile, InsertUserStyleProfile } from '@shared/schema';
 import { IStorage } from './storage';
 import * as db from './db';
 import pg from 'pg';
@@ -601,6 +601,122 @@ export class PostgresStorage implements IStorage {
     } catch (error) {
       console.error('Database email fetch failed:', error);
       return [];
+    }
+  }
+
+  // User swipe methods
+  async createUserSwipe(swipe: InsertUserSwipe): Promise<UserSwipe> {
+    try {
+      const query = `
+        INSERT INTO user_swipes (user_id, session_id, image_id, swipe_direction, style_tags)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id, user_id, session_id, image_id, swipe_direction, style_tags, created_at
+      `;
+      const values = [
+        swipe.userId,
+        swipe.sessionId,
+        swipe.imageId,
+        swipe.swipeDirection,
+        swipe.styleTags
+      ];
+
+      const client = await this.pool.connect();
+      try {
+        const result = await client.query(query, values);
+        return result.rows[0];
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      console.error('Error creating user swipe:', error);
+      throw error;
+    }
+  }
+
+  async getUserSwipes(sessionId: string, userId?: number): Promise<UserSwipe[]> {
+    try {
+      let query = `
+        SELECT id, user_id, session_id, image_id, swipe_direction, style_tags, created_at
+        FROM user_swipes
+        WHERE session_id = $1
+      `;
+      const values: any[] = [sessionId];
+
+      if (userId) {
+        query += ' AND user_id = $2';
+        values.push(userId);
+      }
+
+      query += ' ORDER BY created_at ASC';
+
+      const client = await this.pool.connect();
+      try {
+        const result = await client.query(query, values);
+        return result.rows;
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      console.error('Error getting user swipes:', error);
+      throw error;
+    }
+  }
+
+  // User style profile methods
+  async createUserStyleProfile(profile: InsertUserStyleProfile): Promise<UserStyleProfile> {
+    try {
+      const query = `
+        INSERT INTO user_style_profiles (user_id, session_id, style_vector, summary_text, confidence_score)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id, user_id, session_id, style_vector, summary_text, confidence_score, created_at, updated_at
+      `;
+      const values = [
+        profile.userId,
+        profile.sessionId,
+        JSON.stringify(profile.styleVector),
+        profile.summaryText,
+        profile.confidenceScore
+      ];
+
+      const client = await this.pool.connect();
+      try {
+        const result = await client.query(query, values);
+        return result.rows[0];
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      console.error('Error creating user style profile:', error);
+      throw error;
+    }
+  }
+
+  async getUserStyleProfile(sessionId: string, userId?: number): Promise<UserStyleProfile | undefined> {
+    try {
+      let query = `
+        SELECT id, user_id, session_id, style_vector, summary_text, confidence_score, created_at, updated_at
+        FROM user_style_profiles
+        WHERE session_id = $1
+      `;
+      const values: any[] = [sessionId];
+
+      if (userId) {
+        query += ' AND user_id = $2';
+        values.push(userId);
+      }
+
+      query += ' ORDER BY created_at DESC LIMIT 1';
+
+      const client = await this.pool.connect();
+      try {
+        const result = await client.query(query, values);
+        return result.rows[0] || undefined;
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      console.error('Error getting user style profile:', error);
+      throw error;
     }
   }
 }

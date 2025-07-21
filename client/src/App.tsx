@@ -20,6 +20,7 @@ import Terms from "@/pages/Terms";
 import AuthPage from "@/pages/auth-page";
 import ComingSoonPage from "@/pages/coming-soon-page";
 import AdminPage from "@/pages/admin-page";
+import SwipeOnboarding from "./pages/SwipeOnboarding";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { useQuery } from "@tanstack/react-query";
@@ -47,6 +48,7 @@ function Router() {
       <PageTransition>
         <Switch>
           <Route path="/" component={Home} />
+          <Route path="/swipe-onboarding" component={SwipeOnboarding} />
           <ProtectedRoute path="/closet" component={Closet} />
           <ProtectedRoute path="/inspiration" component={Inspiration} />
           <ProtectedRoute path="/inspiration-upload" component={InspirationUpload} />

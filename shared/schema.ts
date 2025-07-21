@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, jsonb, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, jsonb, timestamp, boolean, varchar, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -168,3 +168,65 @@ export const ShoppingRecommendationsResponse = z.object({
 });
 
 export type ShoppingRecommendationsResponse = z.infer<typeof ShoppingRecommendationsResponse>;
+
+// User swipe data for onboarding flow
+export const userSwipes = pgTable('user_swipes', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id),
+  sessionId: varchar('session_id', { length: 255 }),
+  imageId: integer('image_id').notNull(),
+  swipeDirection: varchar('swipe_direction', { length: 10 }).notNull(), // 'like' or 'dislike'
+  styleTags: text('style_tags').array().notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const insertUserSwipeSchema = createInsertSchema(userSwipes).pick({
+  userId: true,
+  sessionId: true,
+  imageId: true,
+  swipeDirection: true,
+  styleTags: true,
+});
+
+export type InsertUserSwipe = z.infer<typeof insertUserSwipeSchema>;
+export type UserSwipe = typeof userSwipes.$inferSelect;
+
+// User style profiles generated from swipe data
+export const userStyleProfiles = pgTable('user_style_profiles', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id),
+  sessionId: varchar('session_id', { length: 255 }),
+  styleVector: jsonb('style_vector').notNull(), // {"minimalist": 0.7, "techwear": 0.5}
+  summaryText: text('summary_text'),
+  confidenceScore: real('confidence_score').default(0.0),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const insertUserStyleProfileSchema = createInsertSchema(userStyleProfiles).pick({
+  userId: true,
+  sessionId: true,
+  styleVector: true,
+  summaryText: true,
+  confidenceScore: true,
+});
+
+export type InsertUserStyleProfile = z.infer<typeof insertUserStyleProfileSchema>;
+export type UserStyleProfile = typeof userStyleProfiles.$inferSelect;
+
+// Response schemas for swipe API
+export const SwipeResponse = z.object({
+  success: z.boolean(),
+  message: z.string(),
+});
+
+export type SwipeResponse = z.infer<typeof SwipeResponse>;
+
+export const StyleProfileResponse = z.object({
+  styleVector: z.record(z.number()),
+  summaryText: z.string(),
+  confidenceScore: z.number(),
+  swipeCount: z.number(),
+});
+
+export type StyleProfileResponse = z.infer<typeof StyleProfileResponse>;

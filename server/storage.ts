@@ -2,7 +2,9 @@ import {
   users, type User, type InsertUser,
   inspirationImages, type InspirationImage, type InsertInspirationImage,
   clothingItems, type ClothingItem, type InsertClothingItem,
-  emailSignups, type EmailSignup, type InsertEmailSignup
+  emailSignups, type EmailSignup, type InsertEmailSignup,
+  userSwipes, type UserSwipe, type InsertUserSwipe,
+  userStyleProfiles, type UserStyleProfile, type InsertUserStyleProfile
 } from "@shared/schema";
 import session from "express-session";
 import memorystore from "memorystore";
@@ -44,6 +46,14 @@ export interface IStorage {
   // Email signup methods
   createEmailSignup(email: string): Promise<EmailSignup>;
   getEmailSignups(): Promise<EmailSignup[]>;
+
+  // User swipe methods
+  createUserSwipe(swipe: InsertUserSwipe): Promise<UserSwipe>;
+  getUserSwipes(sessionId: string, userId?: number): Promise<UserSwipe[]>;
+
+  // User style profile methods
+  createUserStyleProfile(profile: InsertUserStyleProfile): Promise<UserStyleProfile>;
+  getUserStyleProfile(sessionId: string, userId?: number): Promise<UserStyleProfile | undefined>;
 }
 
 // In-memory storage implementation
@@ -51,18 +61,26 @@ export class MemStorage implements IStorage {
   private users: Map<number, User>;
   private inspirationImages: Map<number, InspirationImage>;
   private clothingItems: Map<number, ClothingItem>;
+  private userSwipes: Map<number, UserSwipe>;
+  private userStyleProfiles: Map<number, UserStyleProfile>;
   private userCurrentId: number;
   private inspirationImageCurrentId: number;
   private clothingItemCurrentId: number;
+  private swipeCurrentId: number;
+  private profileCurrentId: number;
   public sessionStore: session.Store;
 
   constructor() {
     this.users = new Map();
     this.inspirationImages = new Map();
     this.clothingItems = new Map();
+    this.userSwipes = new Map();
+    this.userStyleProfiles = new Map();
     this.userCurrentId = 1;
     this.inspirationImageCurrentId = 1;
     this.clothingItemCurrentId = 1;
+    this.swipeCurrentId = 1;
+    this.profileCurrentId = 1;
 
     // Create an memory store
     this.sessionStore = new MemoryStore({
@@ -228,6 +246,52 @@ export class MemStorage implements IStorage {
   async getEmailSignups(): Promise<EmailSignup[]> {
     // For MemStorage, return empty array
     return [];
+  }
+
+  // User swipe methods
+  async createUserSwipe(swipe: InsertUserSwipe): Promise<UserSwipe> {
+    const id = this.swipeCurrentId++;
+    const newSwipe: UserSwipe = {
+      ...swipe,
+      id,
+      createdAt: new Date(),
+    };
+    this.userSwipes.set(id, newSwipe);
+    return newSwipe;
+  }
+
+  async getUserSwipes(sessionId: string, userId?: number): Promise<UserSwipe[]> {
+    return Array.from(this.userSwipes.values())
+      .filter(swipe => {
+        if (userId) {
+          return swipe.sessionId === sessionId && swipe.userId === userId;
+        }
+        return swipe.sessionId === sessionId;
+      })
+      .sort((a, b) => new Date(a.createdAt!).getTime() - new Date(b.createdAt!).getTime());
+  }
+
+  // User style profile methods
+  async createUserStyleProfile(profile: InsertUserStyleProfile): Promise<UserStyleProfile> {
+    const id = this.profileCurrentId++;
+    const newProfile: UserStyleProfile = {
+      ...profile,
+      id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.userStyleProfiles.set(id, newProfile);
+    return newProfile;
+  }
+
+  async getUserStyleProfile(sessionId: string, userId?: number): Promise<UserStyleProfile | undefined> {
+    return Array.from(this.userStyleProfiles.values())
+      .find(profile => {
+        if (userId) {
+          return profile.sessionId === sessionId && profile.userId === userId;
+        }
+        return profile.sessionId === sessionId;
+      });
   }
 }
 

@@ -1,5 +1,6 @@
 import { Link } from 'wouter';
 import { Button } from '@/components/ui/button';
+import { Sparkles, ArrowRight, Heart } from 'lucide-react';
 
 export default function Home() {
   return (
@@ -12,6 +13,43 @@ export default function Home() {
           <p className="text-zinc-500 text-lg md:text-xl mb-12 max-w-2xl mx-auto">
             upload your inspiration photos and wardrobe items to get ai-powered style tags and outfit recommendations
           </p>
+          {/* Featured Swipe Discovery */}
+          <div className="mb-12">
+            <div className="relative bg-gradient-to-br from-purple-900/20 via-pink-900/10 to-purple-900/20 border border-purple-500/30 rounded-2xl p-8 mb-8">
+              <div className="absolute top-4 right-4">
+                <div className="bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-medium px-3 py-1 rounded-full">
+                  NEW
+                </div>
+              </div>
+              
+              <div className="flex items-center justify-center mb-4">
+                <div className="relative">
+                  <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+                    <Sparkles className="h-6 w-6 text-white" />
+                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full animate-pulse opacity-30"></div>
+                </div>
+              </div>
+              
+              <h3 className="text-2xl font-light text-center mb-3">
+                <span className="gradient-text">Discover Your Style</span>
+              </h3>
+              <p className="text-zinc-400 text-center mb-6 max-w-md mx-auto">
+                Swipe through curated outfit inspiration to create your personalized style profile in minutes
+              </p>
+              
+              <div className="flex justify-center">
+                <Button className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white border-0 px-8 py-3 text-sm font-medium" asChild>
+                  <Link href="/swipe-onboarding">
+                    <Heart className="mr-2 h-4 w-4" />
+                    Start Style Discovery
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </div>
+
           <div className="flex flex-col sm:flex-row justify-center gap-6 mt-12">
             <Button className="bg-black hover:bg-zinc-900 text-zinc-300 border border-zinc-800 px-6 py-6 text-sm" asChild>
               <Link href="/inspiration-upload">
