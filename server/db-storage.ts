@@ -652,7 +652,18 @@ export class PostgresStorage implements IStorage {
       const client = await this.pool.connect();
       try {
         const result = await client.query(query, values);
-        return result.rows;
+        return result.rows.map(row => ({
+          id: row.id,
+          userId: row.user_id,
+          sessionId: row.session_id,
+          imageId: row.image_id,
+          swipeDirection: row.swipe_direction,
+          swipeOrder: row.swipe_order || 1,
+          confidenceScore: row.confidence_score,
+          reasoning: row.reasoning,
+          styleTags: row.style_tags || [],
+          createdAt: row.created_at
+        }));
       } finally {
         client.release();
       }
@@ -660,6 +671,10 @@ export class PostgresStorage implements IStorage {
       console.error('Error getting user swipes:', error);
       throw error;
     }
+  }
+
+  async getSwipeHistory(sessionId: string): Promise<UserSwipe[]> {
+    return this.getUserSwipes(sessionId);
   }
 
   // User style profile methods

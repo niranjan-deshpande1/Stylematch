@@ -21,6 +21,8 @@ import AuthPage from "@/pages/auth-page";
 import ComingSoonPage from "@/pages/coming-soon-page";
 import AdminPage from "@/pages/admin-page";
 import SwipeOnboarding from "./pages/SwipeOnboarding";
+import StyleProfile from "./components/onboarding/StyleProfile";
+import OnboardingComplete from "./pages/OnboardingComplete";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { useQuery } from "@tanstack/react-query";
@@ -49,6 +51,7 @@ function Router() {
         <Switch>
           <Route path="/" component={Home} />
           <Route path="/swipe-onboarding" component={SwipeOnboarding} />
+          <Route path="/onboarding-complete" component={OnboardingComplete} />
           <ProtectedRoute path="/closet" component={Closet} />
           <ProtectedRoute path="/inspiration" component={Inspiration} />
           <ProtectedRoute path="/inspiration-upload" component={InspirationUpload} />

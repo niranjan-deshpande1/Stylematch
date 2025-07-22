@@ -1,66 +1,12 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocation } from 'wouter';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import SwipeCard from './SwipeCard';
 import { useAuth } from '@/hooks/use-auth';
-
-// one generated card per style until there are real photos
-const SWIPE_IMAGES = [
-  {
-    id: 1,
-    image_url: "/api/style-card/minimal-1",
-    style_tags: ["minimalist", "clean", "neutral"]
-  },
-  {
-    id: 2,
-    image_url: "/api/style-card/edgy-1",
-    style_tags: ["edgy", "grunge", "alternative"]
-  },
-  {
-    id: 3,
-    image_url: "/api/style-card/classic-1",
-    style_tags: ["classic", "preppy", "polished"]
-  },
-  {
-    id: 4,
-    image_url: "/api/style-card/streetwear-1",
-    style_tags: ["streetwear", "urban", "casual"]
-  },
-  {
-    id: 5,
-    image_url: "/api/style-card/boho-1",
-    style_tags: ["bohemian", "boho", "artistic"]
-  },
-  {
-    id: 6,
-    image_url: "/api/style-card/techwear-1",
-    style_tags: ["techwear", "functional", "futuristic"]
-  },
-  {
-    id: 7,
-    image_url: "/api/style-card/romantic-1",
-    style_tags: ["romantic", "feminine", "delicate"]
-  },
-  {
-    id: 8,
-    image_url: "/api/style-card/vintage-1",
-    style_tags: ["vintage", "retro", "timeless"]
-  },
-  {
-    id: 9,
-    image_url: "/api/style-card/athleisure-1",
-    style_tags: ["athleisure", "sporty", "comfortable"]
-  },
-  {
-    id: 10,
-    image_url: "/api/style-card/formal-1",
-    style_tags: ["formal", "professional", "sophisticated"]
-  }
-];
 
 interface SwipeData {
   imageId: number;
@@ -78,6 +24,20 @@ export default function SwipeFlow({ onComplete }: SwipeFlowProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [swipeData, setSwipeData] = useState<SwipeData[]>([]);
   const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+
+  // Fetch inspiration images
+  const { data: inspirationData, isLoading } = useQuery({
+    queryKey: ['swipe-inspiration'],
+    queryFn: async () => {
+      const response = await fetch('/api/swipe-inspiration-data');
+      if (!response.ok) {
+        throw new Error('Failed to fetch inspiration images');
+      }
+      return response.json();
+    },
+  });
+
+  const SWIPE_IMAGES = inspirationData?.images ?? [];
 
   const swipeMutation = useMutation({
     mutationFn: async (data: SwipeData) => {
@@ -123,11 +83,11 @@ export default function SwipeFlow({ onComplete }: SwipeFlowProps) {
       return response.json();
     },
     onSuccess: (data) => {
-      // Call onComplete callback or navigate to default location
+      // Call onComplete callback or navigate to profile with session
       if (onComplete) {
         onComplete();
       } else {
-        setLocation(`/onboarding/profile?session=${sessionId}`);
+        setLocation('/onboarding-complete');
       }
     }
   });
@@ -138,23 +98,70 @@ export default function SwipeFlow({ onComplete }: SwipeFlowProps) {
     // Store swipe locally
     setSwipeData(prev => [...prev, newSwipe]);
 
-    // Submit swipe to backend
-    swipeMutation.mutate(newSwipe);
+    // Submit swipe to backend with AI recommendation
+    const response = await fetch('/api/swipe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image_id: imageId,
+        swipe_direction: direction,
+        style_tags: styleTags,
+        session_id: sessionId,
+        user_id: user?.id || null,
+        swipe_order: swipeData.length + 1
+      }),
+    });
 
-    // Move to next card
-    setCurrentIndex(prev => prev + 1);
+    if (response.ok) {
+      const result = await response.json();
 
-    // If this was the last card, generate style profile
-    if (currentIndex >= SWIPE_IMAGES.length - 1) {
-      setTimeout(() => {
-        generateProfileMutation.mutate();
-      }, 500); // Small delay for better UX
+      // Check if onboarding should complete
+      if (result.shouldComplete) {
+        setTimeout(() => {
+          generateProfileMutation.mutate();
+        }, 500);
+        return;
+      }
+
+      // If AI provided next image, update current image
+      if (result.nextImage) {
+        // Update SWIPE_IMAGES to show the AI recommended image next
+        setCurrentIndex(prev => prev + 1);
+      } else {
+        // Fallback to sequential behavior
+        setCurrentIndex(prev => prev + 1);
+
+        // If this was the last card, generate style profile
+        if (currentIndex >= SWIPE_IMAGES.length - 1) {
+          setTimeout(() => {
+            generateProfileMutation.mutate();
+          }, 500);
+        }
+      }
+    } else {
+      // Fallback behavior if API fails
+      setCurrentIndex(prev => prev + 1);
     }
   };
 
   const handleSkip = () => {
     setLocation('/');
   };
+
+  // Show loading state while fetching inspiration images
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
+        <div className="text-center max-w-md">
+          <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-6"></div>
+          <h2 className="text-2xl font-light text-zinc-300 mb-4">Loading style inspiration...</h2>
+          <p className="text-zinc-500">
+            Preparing personalized outfit images for your style discovery.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const progress = ((currentIndex) / SWIPE_IMAGES.length) * 100;
   const isComplete = currentIndex >= SWIPE_IMAGES.length;
@@ -202,7 +209,7 @@ export default function SwipeFlow({ onComplete }: SwipeFlowProps) {
 
       {/* Swipe Area */}
       <div className="flex-1 relative px-6 pb-6">
-        <div className="relative max-w-sm mx-auto h-full">
+        <div className="relative max-w-sm mx-auto" style={{ height: '500px', minHeight: '500px' }}>
           <AnimatePresence>
             {currentIndex < SWIPE_IMAGES.length && (
               <SwipeCard

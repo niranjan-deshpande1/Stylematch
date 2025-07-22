@@ -19,8 +19,14 @@ export default function StyleProfile({ onComplete }: StyleProfileProps) {
 
   // Extract session ID from URL params
   useEffect(() => {
-    const params = new URLSearchParams(location.split('?')[1] || '');
-    setSessionId(params.get('session'));
+    const urlParts = location.split('?');
+    if (urlParts.length > 1) {
+      const params = new URLSearchParams(urlParts[1]);
+      const session = params.get('session');
+      setSessionId(session);
+    } else {
+      console.error('StyleProfile: No session parameter found in URL:', location);
+    }
   }, [location]);
 
   const { data: styleProfile, isLoading } = useQuery({
@@ -155,7 +161,7 @@ export default function StyleProfile({ onComplete }: StyleProfileProps) {
                 <p className="text-zinc-400 mb-4">
                   Create an account to save your style preferences and get personalized recommendations.
                 </p>
-                <Button 
+                <Button
                   className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white"
                   asChild
                 >
@@ -166,14 +172,14 @@ export default function StyleProfile({ onComplete }: StyleProfileProps) {
           )}
 
           <div className="flex flex-col sm:flex-row gap-4">
-            <Button 
+            <Button
               className="flex-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700"
               asChild
             >
               <Link href="/closet-upload">Start Building Your Closet</Link>
             </Button>
-            
-            <Button 
+
+            <Button
               className="flex-1 bg-gradient-to-r from-purple-900/50 to-pink-900/50 hover:from-purple-900/70 hover:to-pink-900/70 text-zinc-300 border border-zinc-700"
               asChild
             >
@@ -182,15 +188,15 @@ export default function StyleProfile({ onComplete }: StyleProfileProps) {
           </div>
 
           {onComplete ? (
-            <Button 
+            <Button
               onClick={onComplete}
               className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white"
             >
               Continue to StyleMatch
             </Button>
           ) : (
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               className="text-zinc-500 hover:text-zinc-400"
               asChild
             >

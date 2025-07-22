@@ -8,6 +8,7 @@ import {
 } from "@shared/schema";
 import session from "express-session";
 import memorystore from "memorystore";
+import { SupabaseStorage } from './supabase-storage.js';
 
 // Import PostgreSQL storage implementation
 import { PostgresStorage } from './db-storage';
@@ -50,6 +51,7 @@ export interface IStorage {
   // User swipe methods
   createUserSwipe(swipe: InsertUserSwipe): Promise<UserSwipe>;
   getUserSwipes(sessionId: string, userId?: number): Promise<UserSwipe[]>;
+  getSwipeHistory(sessionId: string): Promise<UserSwipe[]>;
 
   // User style profile methods
   createUserStyleProfile(profile: InsertUserStyleProfile): Promise<UserStyleProfile>;
@@ -271,6 +273,10 @@ export class MemStorage implements IStorage {
       .sort((a, b) => new Date(a.createdAt!).getTime() - new Date(b.createdAt!).getTime());
   }
 
+  async getSwipeHistory(sessionId: string): Promise<UserSwipe[]> {
+    return this.getUserSwipes(sessionId);
+  }
+
   // User style profile methods
   async createUserStyleProfile(profile: InsertUserStyleProfile): Promise<UserStyleProfile> {
     const id = this.profileCurrentId++;
@@ -295,26 +301,11 @@ export class MemStorage implements IStorage {
   }
 }
 
-// We will use PostgreSQL storage for persistence, or fallback to memory storage
+// We will use Supabase storage for persistence, or fallback to memory storage
 // This handles both privacy and cross-device compatibility concerns
 let storageImplementation: IStorage;
 
-try {
-  // Check if we have a valid DATABASE_URL environment variable
-  if (!process.env.DATABASE_URL) {
-    throw new Error('DATABASE_URL is not set. Using memory storage instead.');
-  }
-
-  // Try to use PostgreSQL storage first
-  storageImplementation = new PostgresStorage();
-} catch (error) {
-  // Fallback to memory storage if PostgreSQL fails
-  console.warn('Failed to initialize PostgreSQL storage, falling back to memory storage:', error);
-  storageImplementation = new MemStorage();
-
-  // Print warning to make it clear we're using in-memory storage
-  console.warn('USING IN-MEMORY STORAGE - DATA WILL BE LOST ON RESTART');
-  console.warn('To fix this issue, please set up a valid PostgreSQL database.');
-}
+// Force using Supabase storage
+storageImplementation = new SupabaseStorage();
 
 export const storage = storageImplementation;

@@ -1,3 +1,4 @@
+
 import { motion, useMotionValue, useTransform, PanInfo } from 'framer-motion';
 import { useState } from 'react';
 
@@ -14,7 +15,7 @@ interface SwipeCardProps {
 
 export default function SwipeCard({ image, onSwipe, isVisible, index }: SwipeCardProps) {
   const [exitX, setExitX] = useState(0);
-  
+
   const x = useMotionValue(0);
   const opacity = useTransform(x, [-150, 0, 150], [0.5, 1, 0.5]);
   const rotate = useTransform(x, [-150, 0, 150], [-15, 0, 15]);
@@ -26,7 +27,7 @@ export default function SwipeCard({ image, onSwipe, isVisible, index }: SwipeCar
 
   const handleDragEnd = (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     const threshold = 100;
-    
+
     if (Math.abs(info.offset.x) > threshold) {
       const direction = info.offset.x > 0 ? 'like' : 'dislike';
       setExitX(info.offset.x > 0 ? 300 : -300);
@@ -55,19 +56,31 @@ export default function SwipeCard({ image, onSwipe, isVisible, index }: SwipeCar
     >
       {/* Main Card */}
       <div className="relative w-full h-full bg-zinc-900 rounded-3xl overflow-hidden border border-zinc-800 shadow-2xl">
-        {/* Background Image */}
-        <div 
-          className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url(${image.image_url})` }}
+        {/* Fixed image with explicit dimensions */}
+        <img
+          src={image.image_url}
+          alt="Style inspiration"
+          className="absolute inset-0 object-cover"
+          style={{
+            width: '100%',
+            height: '100%',
+            minHeight: '500px',
+            zIndex: 1
+          }}
+          onLoad={(e) => {
+          }}
+          onError={(e) => {
+            console.error('✗ Image failed to load:', image.image_url, e);
+          }}
         />
-        
+
         {/* Gradient Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-        
+        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent pointer-events-none" style={{ zIndex: 2 }} />
+
         {/* Like Overlay */}
         <motion.div
-          style={{ opacity: likeOpacity }}
-          className="absolute inset-0 bg-green-500/30 border-4 border-green-500 rounded-3xl flex items-center justify-center"
+          style={{ opacity: likeOpacity, zIndex: 3 }}
+          className="absolute inset-0 bg-green-500/30 border-4 border-green-500 rounded-3xl flex items-center justify-center pointer-events-none"
         >
           <div className="bg-green-500 text-white px-8 py-4 rounded-2xl font-bold text-2xl transform rotate-12 shadow-lg">
             LOVE IT
@@ -76,8 +89,8 @@ export default function SwipeCard({ image, onSwipe, isVisible, index }: SwipeCar
 
         {/* Dislike Overlay */}
         <motion.div
-          style={{ opacity: dislikeOpacity }}
-          className="absolute inset-0 bg-red-500/30 border-4 border-red-500 rounded-3xl flex items-center justify-center"
+          style={{ opacity: dislikeOpacity, zIndex: 3 }}
+          className="absolute inset-0 bg-red-500/30 border-4 border-red-500 rounded-3xl flex items-center justify-center pointer-events-none"
         >
           <div className="bg-red-500 text-white px-8 py-4 rounded-2xl font-bold text-2xl transform -rotate-12 shadow-lg">
             NOT ME
@@ -85,7 +98,7 @@ export default function SwipeCard({ image, onSwipe, isVisible, index }: SwipeCar
         </motion.div>
 
         {/* Style Tags */}
-        <div className="absolute bottom-0 left-0 right-0 p-6">
+        <div className="absolute bottom-0 left-0 right-0 p-6 pointer-events-none" style={{ zIndex: 4 }}>
           <div className="flex flex-wrap gap-2">
             {image.style_tags.map((tag, tagIndex) => (
               <span
@@ -99,7 +112,7 @@ export default function SwipeCard({ image, onSwipe, isVisible, index }: SwipeCar
         </div>
 
         {/* Swipe Hints */}
-        <div className="absolute top-6 left-0 right-0 flex justify-between px-6">
+        <div className="absolute top-6 left-0 right-0 flex justify-between px-6 pointer-events-none">
           <div className="flex items-center gap-2 text-zinc-400 text-sm">
             <div className="w-6 h-6 rounded-full border-2 border-red-500 flex items-center justify-center">
               <span className="text-red-500 text-xs">✕</span>

@@ -6,6 +6,14 @@ import * as db from "./db";
 import { initializeMigrations } from "./migrations";
 import { scheduleAutomaticBackups } from "./backup-restore";
 
+// Override DATABASE_URL to use Supabase connection pooler when available
+if (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY) {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const projectRef = supabaseUrl.split('//')[1].split('.')[0];
+  // Use the pooler connection string which works better with Drizzle
+  process.env.DATABASE_URL = `postgresql://postgres.${projectRef}:[YOUR-PASSWORD]@aws-0-us-west-1.pooler.supabase.com:6543/postgres`;
+}
+
 const app = express();
 
 // CORS middleware for domain deployment

@@ -929,7 +929,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Swipe onboarding API - Record user swipe preferences
   app.post('/api/swipe', async (req, res) => {
     try {
-      const { image_id, swipe_direction, style_tags, session_id, user_id } = req.body;
+      const { image_id, swipe_direction, style_tags, session_id, user_id, swipe_order } = req.body;
 
       // Validate input
       if (!image_id || !swipe_direction || !style_tags || !session_id) {
@@ -946,12 +946,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sessionId: session_id,
         imageId: image_id,
         swipeDirection: swipe_direction,
+        swipeOrder: swipe_order || 1,
         styleTags: Array.isArray(style_tags) ? style_tags : [],
       };
 
       await storage.createUserSwipe(swipeData);
 
-      res.json({ success: true, message: 'Swipe recorded successfully' });
+      // Get AI recommendation for next image
+      try {
+        const swipeHistory = await storage.getSwipeHistory(session_id);
+        const { getSwipeImages } = await import('./utils/imageProcessor');
+        const availableImages = await getSwipeImages();
+        const { recommendationEngine } = await import('./services/recommendationEngine');
+
+        const swipeDataForAI = swipeHistory.map((swipe, index) => ({
+          imageId: swipe.imageId,
+          direction: swipe.swipeDirection as 'like' | 'dislike',
+          styleTags: swipe.styleTags,
+          swipeOrder: swipe.swipeOrder || index + 1
+        }));
+
+        const nextImage = await recommendationEngine.getNextRecommendation(availableImages, swipeDataForAI);
+        const shouldComplete = recommendationEngine.shouldCompleteOnboarding(swipeDataForAI);
+
+        res.json({
+          success: true,
+          message: 'Swipe recorded successfully',
+          nextImage,
+          shouldComplete,
+          phase: recommendationEngine.determineDiscoveryPhase(swipeDataForAI)
+        });
+      } catch (aiError) {
+        console.error('AI recommendation error:', aiError);
+        // Still return success for swipe recording even if AI fails
+        res.json({ success: true, message: 'Swipe recorded successfully' });
+      }
     } catch (error) {
       console.error('Error recording swipe:', error);
       res.status(500).json({ message: 'Failed to record swipe' });
@@ -1076,49 +1105,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // generated style cards for the swipe onboarding
-  app.get('/api/style-card/:styleId', (req: Request, res: Response) => {
-    const { styleId } = req.params;
+  // Serve inspiration images for swipe onboarding
+  app.get('/api/swipe-inspiration/:filename', (req: Request, res: Response) => {
+    try {
+      const { filename } = req.params;
+      const filepath = path.resolve(process.cwd(), 'swipe-inspiration-images', filename);
 
-    // Style name mapping for better display
-    const styleNames: { [key: string]: string } = {
-      'minimal-1': 'Minimal Chic',
-      'boho-1': 'Boho Vibes',
-      'streetwear-1': 'Streetwear',
-      'classic-1': 'Classic Style',
-      'edgy-1': 'Edgy Look',
-      'techwear-1': 'Techwear',
-      'romantic-1': 'Romantic',
-      'vintage-1': 'Vintage',
-      'athleisure-1': 'Athleisure',
-      'formal-1': 'Formal'
-    };
+      // Security check - ensure file is within the inspiration images directory
+      const baseDir = path.resolve(process.cwd(), 'swipe-inspiration-images');
+      if (!filepath.startsWith(baseDir)) {
+        console.error('Security violation: Path traversal attempt detected');
+        return res.status(403).json({ message: 'Forbidden' });
+      }
 
-    const styleName = styleNames[styleId] || 'Style';
+      // Check if file exists
+      if (!fs.existsSync(filepath)) {
+        console.error(`Image not found: ${filepath}`);
+        return res.status(404).json({ message: 'Image not found' });
+      }
 
-    // gradient card with the style name on it
-    const svg = `
-      <svg width="400" height="600" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" style="stop-color:#8B5CF6;stop-opacity:1" />
-            <stop offset="100%" style="stop-color:#EC4899;stop-opacity:1" />
-          </linearGradient>
-        </defs>
-        <rect width="100%" height="100%" fill="url(#grad)"/>
-        <rect x="50" y="50" width="300" height="500" fill="rgba(255,255,255,0.1)" rx="20"/>
-        <text x="200" y="320" text-anchor="middle" fill="white" font-size="24" font-family="Arial, sans-serif" font-weight="bold">
-          ${styleName}
-        </text>
-        <text x="200" y="350" text-anchor="middle" fill="rgba(255,255,255,0.8)" font-size="14" font-family="Arial, sans-serif">
-          Outfit Inspiration
-        </text>
-      </svg>
-    `;
+      // Set appropriate content type based on file extension
+      const ext = path.extname(filename).toLowerCase();
+      const contentType = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.webp': 'image/webp'
+      }[ext] || 'image/jpeg';
 
-    res.setHeader('Content-Type', 'image/svg+xml');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    res.send(svg);
+      // Set headers for proper image serving and caching
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
+      res.setHeader('Access-Control-Allow-Origin', '*'); // CORS support
+      res.setHeader('Access-Control-Allow-Methods', 'GET');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+      // Use sendFile for reliable image delivery
+      res.sendFile(filepath, (err) => {
+        if (err) {
+          console.error('Error sending file:', err);
+          if (!res.headersSent) {
+            res.status(500).json({ message: 'Failed to serve image' });
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error serving inspiration image:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Failed to serve image' });
+      }
+    }
+  });
+
+  // Get processed inspiration images for swipe onboarding
+  app.get('/api/swipe-inspiration-data', async (req: Request, res: Response) => {
+    try {
+      const { getSwipeImages } = await import('./utils/imageProcessor');
+      const images = await getSwipeImages();
+      res.json({ images });
+    } catch (error) {
+      console.error('Error getting swipe inspiration data:', error);
+      res.status(500).json({ message: 'Failed to get inspiration images' });
+    }
+  });
+
+  // Force reprocess inspiration images (admin endpoint)
+  app.post('/api/admin/reprocess-inspiration', async (req: Request, res: Response) => {
+    try {
+      const { reprocessInspirationImages } = await import('./utils/imageProcessor');
+      const images = await reprocessInspirationImages();
+      res.json({
+        message: `Successfully reprocessed ${images.length} images`,
+        images
+      });
+    } catch (error) {
+      console.error('Error reprocessing inspiration images:', error);
+      res.status(500).json({ message: 'Failed to reprocess images' });
+    }
   });
 
   const httpServer = createServer(app);

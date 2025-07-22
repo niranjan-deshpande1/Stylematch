@@ -176,6 +176,9 @@ export const userSwipes = pgTable('user_swipes', {
   sessionId: varchar('session_id', { length: 255 }),
   imageId: integer('image_id').notNull(),
   swipeDirection: varchar('swipe_direction', { length: 10 }).notNull(), // 'like' or 'dislike'
+  swipeOrder: integer('swipe_order').notNull().default(1),
+  confidenceScore: real('confidence_score'),
+  reasoning: text('reasoning'),
   styleTags: text('style_tags').array().notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 });
@@ -185,6 +188,9 @@ export const insertUserSwipeSchema = createInsertSchema(userSwipes).pick({
   sessionId: true,
   imageId: true,
   swipeDirection: true,
+  swipeOrder: true,
+  confidenceScore: true,
+  reasoning: true,
   styleTags: true,
 });
 
