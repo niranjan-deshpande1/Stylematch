@@ -5,7 +5,6 @@ import multer from "multer";
 import fs from "fs";
 import path from "path";
 import { analyzeClothingImage, analyzeOutfitImage, identifyMissingPieces, generateOutfitCombinations } from "./utils/openai";
-import { generateShoppingRecommendations, generateMissingPieceRecommendations, generateInspirationShoppingRecommendations } from "./utils/shopping";
 import { setupAuth, isAuthenticated } from "./auth";
 import {
   clothingCategories,
@@ -14,12 +13,7 @@ import {
   OutfitCombination,
   OutfitCombinationsResponse,
   StyleMatchingResponse,
-  InspirationImage,
-  ShoppingRecommendationsResponse,
-  SwipeResponse,
-  StyleProfileResponse,
-  insertUserSwipeSchema,
-  insertUserStyleProfileSchema
+  InspirationImage
 } from "@shared/schema";
 
 // Define a new Request type that includes multer's file property
@@ -119,20 +113,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.sendFile(filepath);
   });
 
-  // Get all inspiration images - SECURE: Only return user's own data
+  // Get all inspiration images - always return content regardless of auth status
   app.get('/api/inspiration', async (req, res) => {
     try {
-      // SECURITY FIX: Only return user's own data
-      const userId = req.user?.id;
+      // not logged in, so use the guest id
+      // This ensures content is always available regardless of login status
+      const userId = req.user?.id || 9999;
 
-      if (!userId) {
-        // For unauthenticated users, return empty array (no shared data)
-        return res.json([]);
-      }
-
-      // Get images only for the authenticated user
+      // Get images with this userId (either actual user or guest user)
       const images = await storage.getInspirationImages(userId);
 
+      // Always return images, even if the array is empty
       res.json(images);
     } catch (error) {
       console.error('Error fetching inspiration images:', error);
@@ -140,11 +131,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Helper to get user ID from request - SECURE VERSION
+  // Helper to get user ID from request
   const getUserId = (req: Request): number | null => {
-    // SECURITY FIX: Only return actual authenticated user ID
-    // No shared guest pools - users must be authenticated
-    return req.user?.id || null;
+    // Check if the user is logged in
+    if (req.user?.id) {
+      // Authenticated user, return their actual ID
+      return req.user.id;
+    } else if (req.headers['x-guest-mode'] === 'true' || req.query.guestMode === 'true') {
+      // For guest users, use a designated guest ID (9999)
+      // This ensures guest content doesn't interfere with real users
+      return 9999;
+    }
+
+    // User is neither authenticated nor in guest mode
+    return null;
   };
 
   // Upload inspiration image
@@ -417,8 +417,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/inspiration/:id/missing-pieces', async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const userId = getUserId(req);
 
+      // Check for guest mode directly (similar to our updated inspiration endpoint)
+      const isGuestMode = req.headers['x-guest-mode'] === 'true' || req.query.guestMode === 'true';
+
+      // Get user ID, defaulting to guest ID in guest mode
+      let userId = req.user?.id as number | null;
+      if (isGuestMode && !userId) {
+        userId = 9999; // Guest mode ID
+      }
+
+      // If there's no user ID at this point, we're not in guest mode and not authenticated
       if (userId === null) {
         return res.status(401).json({ message: 'Authentication required' });
       }
@@ -444,16 +453,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Identify missing pieces with OpenAI
       const missingPieces = await identifyMissingPieces(base64Image, userClosetTags);
 
-      // Generate shopping recommendations for missing pieces
-      const shoppingRecommendations = await generateMissingPieceRecommendations(
-        missingPieces.map(piece => piece.description),
-        image.styleTags || []
-      );
-
-      res.json({
-        missingPieces,
-        shoppingRecommendations
-      });
+      res.json({ missingPieces });
     } catch (error) {
       console.error('Error identifying missing pieces:', error);
       res.status(500).json({ message: 'Failed to identify missing pieces' });
@@ -866,322 +866,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/admin/mode', (req: Request, res: Response) => {
     const mode = process.env.SITE_MODE || 'app';
     res.json({ mode });
-  });
-
-  // Shopping recommendations API - Available for guest users
-  app.get('/api/shopping/recommendations', async (req, res) => {
-    try {
-      const userId = getUserId(req);
-      const isGuestMode = req.headers['x-guest-mode'] === 'true';
-
-      // Allow both authenticated users and guest mode users
-      if (!userId && !isGuestMode) {
-        return res.status(401).json({ message: 'Authentication required' });
-      }
-
-      const query = req.query.q as string;
-      const category = req.query.category as string;
-      const maxResults = parseInt(req.query.limit as string) || 8;
-
-      if (!query) {
-        return res.status(400).json({ message: 'Search query is required' });
-      }
-
-      const recommendations = await generateShoppingRecommendations(query, category, maxResults);
-      res.json(recommendations);
-    } catch (error) {
-      console.error('Error generating shopping recommendations:', error);
-      res.status(500).json({ message: 'Failed to generate recommendations', error: (error as Error).message });
-    }
-  });
-
-  // Get shopping recommendations based on inspiration image
-  app.get('/api/inspiration/:id/shopping', async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const userId = getUserId(req);
-
-      if (!userId) {
-        return res.status(401).json({ message: 'Authentication required' });
-      }
-
-      const image = await storage.getInspirationImage(id, userId);
-      if (!image) {
-        return res.status(404).json({ message: 'Inspiration image not found' });
-      }
-
-      // Get user's existing closet to avoid duplicate recommendations
-      const clothingItems = await storage.getClothingItems(userId);
-      const existingTags = clothingItems.flatMap(item => item.styleTags || []);
-
-      const recommendations = await generateInspirationShoppingRecommendations(
-        image.styleTags || [],
-        existingTags
-      );
-
-      res.json(recommendations);
-    } catch (error) {
-      console.error('Error generating inspiration shopping recommendations:', error);
-      res.status(500).json({ message: 'Failed to generate recommendations' });
-    }
-  });
-
-  // Swipe onboarding API - Record user swipe preferences
-  app.post('/api/swipe', async (req, res) => {
-    try {
-      const { image_id, swipe_direction, style_tags, session_id, user_id, swipe_order } = req.body;
-
-      // Validate input
-      if (!image_id || !swipe_direction || !style_tags || !session_id) {
-        return res.status(400).json({ message: 'Missing required fields' });
-      }
-
-      if (!['like', 'dislike'].includes(swipe_direction)) {
-        return res.status(400).json({ message: 'Invalid swipe direction' });
-      }
-
-      // Store swipe data
-      const swipeData = {
-        userId: user_id || null,
-        sessionId: session_id,
-        imageId: image_id,
-        swipeDirection: swipe_direction,
-        swipeOrder: swipe_order || 1,
-        styleTags: Array.isArray(style_tags) ? style_tags : [],
-      };
-
-      await storage.createUserSwipe(swipeData);
-
-      // Get AI recommendation for next image
-      try {
-        const swipeHistory = await storage.getSwipeHistory(session_id);
-        const { getSwipeImages } = await import('./utils/imageProcessor');
-        const availableImages = await getSwipeImages();
-        const { recommendationEngine } = await import('./services/recommendationEngine');
-
-        const swipeDataForAI = swipeHistory.map((swipe, index) => ({
-          imageId: swipe.imageId,
-          direction: swipe.swipeDirection as 'like' | 'dislike',
-          styleTags: swipe.styleTags,
-          swipeOrder: swipe.swipeOrder || index + 1
-        }));
-
-        const nextImage = await recommendationEngine.getNextRecommendation(availableImages, swipeDataForAI);
-        const shouldComplete = recommendationEngine.shouldCompleteOnboarding(swipeDataForAI);
-
-        res.json({
-          success: true,
-          message: 'Swipe recorded successfully',
-          nextImage,
-          shouldComplete,
-          phase: recommendationEngine.determineDiscoveryPhase(swipeDataForAI)
-        });
-      } catch (aiError) {
-        console.error('AI recommendation error:', aiError);
-        // Still return success for swipe recording even if AI fails
-        res.json({ success: true, message: 'Swipe recorded successfully' });
-      }
-    } catch (error) {
-      console.error('Error recording swipe:', error);
-      res.status(500).json({ message: 'Failed to record swipe' });
-    }
-  });
-
-  // Generate style profile from swipe data
-  app.post('/api/generate-style-profile', async (req, res) => {
-    try {
-      const { session_id, user_id } = req.body;
-
-      if (!session_id) {
-        return res.status(400).json({ message: 'Session ID required' });
-      }
-
-      // Get all swipes for this session
-      const swipes = await storage.getUserSwipes(session_id, user_id);
-
-      if (swipes.length === 0) {
-        return res.status(400).json({ message: 'No swipe data found for session' });
-      }
-
-      // Calculate style vector from swipe data
-      const likedTags = swipes
-        .filter(swipe => swipe.swipeDirection === 'like')
-        .flatMap(swipe => swipe.styleTags);
-
-      const dislikedTags = swipes
-        .filter(swipe => swipe.swipeDirection === 'dislike')
-        .flatMap(swipe => swipe.styleTags);
-
-      // Create style vector (simple frequency-based scoring)
-      const styleVector: Record<string, number> = {};
-      const allTags = Array.from(new Set([...likedTags, ...dislikedTags]));
-
-      allTags.forEach(tag => {
-        const likes = likedTags.filter(t => t === tag).length;
-        const dislikes = dislikedTags.filter(t => t === tag).length;
-        const total = likes + dislikes;
-
-        if (total > 0) {
-          styleVector[tag] = likes / total; // Score between 0 and 1
-        }
-      });
-
-      // Generate AI summary using OpenAI
-      let summaryText = "Your style is uniquely yours.";
-      try {
-        const { generateStyleSummary } = await import('./utils/openai');
-        summaryText = await generateStyleSummary(styleVector);
-      } catch (openaiError) {
-        console.error('OpenAI summary generation failed, using fallback:', openaiError);
-        // Create rule-based summary as fallback
-        const topStyles = Object.entries(styleVector)
-          .sort(([, a], [, b]) => b - a)
-          .slice(0, 3)
-          .map(([style]) => style);
-
-        if (topStyles.length > 0) {
-          summaryText = `You gravitate toward ${topStyles.slice(0, -1).join(', ')}${topStyles.length > 1 ? ' and ' : ''}${topStyles[topStyles.length - 1]} styles. Your aesthetic reflects a blend of these preferences.`;
-        }
-      }
-
-      // Calculate confidence score
-      const confidenceScore = Math.min(swipes.length / 10, 1.0); // Max confidence at 10+ swipes
-
-      // Store style profile
-      const profileData = {
-        userId: user_id || null,
-        sessionId: session_id,
-        styleVector,
-        summaryText,
-        confidenceScore
-      };
-
-      await storage.createUserStyleProfile(profileData);
-
-      const response: StyleProfileResponse = {
-        styleVector,
-        summaryText,
-        confidenceScore,
-        swipeCount: swipes.length
-      };
-
-      res.json(response);
-    } catch (error) {
-      console.error('Error generating style profile:', error);
-      res.status(500).json({ message: 'Failed to generate style profile' });
-    }
-  });
-
-  // Get style profile for a session
-  app.get('/api/style-profile', async (req, res) => {
-    try {
-      const session_id = req.query.session as string;
-      const userId = getUserId(req);
-
-      if (!session_id) {
-        return res.status(400).json({ message: 'Session ID required' });
-      }
-
-      const profile = await storage.getUserStyleProfile(session_id, userId || undefined);
-
-      if (!profile) {
-        return res.status(404).json({ message: 'Style profile not found' });
-      }
-
-      // Get swipe count for this session
-      const swipes = await storage.getUserSwipes(session_id, userId || undefined);
-
-      const response: StyleProfileResponse = {
-        styleVector: profile.styleVector as Record<string, number>,
-        summaryText: profile.summaryText || "Your style is uniquely yours.",
-        confidenceScore: profile.confidenceScore || 0,
-        swipeCount: swipes.length
-      };
-
-      res.json(response);
-    } catch (error) {
-      console.error('Error fetching style profile:', error);
-      res.status(500).json({ message: 'Failed to fetch style profile' });
-    }
-  });
-
-  // Serve inspiration images for swipe onboarding
-  app.get('/api/swipe-inspiration/:filename', (req: Request, res: Response) => {
-    try {
-      const { filename } = req.params;
-      const filepath = path.resolve(process.cwd(), 'swipe-inspiration-images', filename);
-
-      // Security check - ensure file is within the inspiration images directory
-      const baseDir = path.resolve(process.cwd(), 'swipe-inspiration-images');
-      if (!filepath.startsWith(baseDir)) {
-        console.error('Security violation: Path traversal attempt detected');
-        return res.status(403).json({ message: 'Forbidden' });
-      }
-
-      // Check if file exists
-      if (!fs.existsSync(filepath)) {
-        console.error(`Image not found: ${filepath}`);
-        return res.status(404).json({ message: 'Image not found' });
-      }
-
-      // Set appropriate content type based on file extension
-      const ext = path.extname(filename).toLowerCase();
-      const contentType = {
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.png': 'image/png',
-        '.webp': 'image/webp'
-      }[ext] || 'image/jpeg';
-
-      // Set headers for proper image serving and caching
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
-      res.setHeader('Access-Control-Allow-Origin', '*'); // CORS support
-      res.setHeader('Access-Control-Allow-Methods', 'GET');
-      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-
-      // Use sendFile for reliable image delivery
-      res.sendFile(filepath, (err) => {
-        if (err) {
-          console.error('Error sending file:', err);
-          if (!res.headersSent) {
-            res.status(500).json({ message: 'Failed to serve image' });
-          }
-        }
-      });
-    } catch (error) {
-      console.error('Error serving inspiration image:', error);
-      if (!res.headersSent) {
-        res.status(500).json({ message: 'Failed to serve image' });
-      }
-    }
-  });
-
-  // Get processed inspiration images for swipe onboarding
-  app.get('/api/swipe-inspiration-data', async (req: Request, res: Response) => {
-    try {
-      const { getSwipeImages } = await import('./utils/imageProcessor');
-      const images = await getSwipeImages();
-      res.json({ images });
-    } catch (error) {
-      console.error('Error getting swipe inspiration data:', error);
-      res.status(500).json({ message: 'Failed to get inspiration images' });
-    }
-  });
-
-  // Force reprocess inspiration images (admin endpoint)
-  app.post('/api/admin/reprocess-inspiration', async (req: Request, res: Response) => {
-    try {
-      const { reprocessInspirationImages } = await import('./utils/imageProcessor');
-      const images = await reprocessInspirationImages();
-      res.json({
-        message: `Successfully reprocessed ${images.length} images`,
-        images
-      });
-    } catch (error) {
-      console.error('Error reprocessing inspiration images:', error);
-      res.status(500).json({ message: 'Failed to reprocess images' });
-    }
   });
 
   const httpServer = createServer(app);

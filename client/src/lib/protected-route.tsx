@@ -11,16 +11,12 @@ export function ProtectedRoute({
   path: string;
   component: () => React.JSX.Element;
 }) {
-  const { user, isLoading, error } = useAuth();
+  const { user, isLoading } = useAuth();
   const [location] = useLocation();
-  const [retryCount, setRetryCount] = useState(0);
   const [showLoading, setShowLoading] = useState(false);
 
-  // Determine guest mode status with more reliable checks
-  const guestMode = typeof window !== 'undefined' &&
-    (localStorage.getItem("guestMode") === "true" ||
-     sessionStorage.getItem("guestMode") === "true" ||
-     isGuestMode());
+  // Check guest mode status
+  const guestMode = isGuestMode();
 
   // Add a slight delay before showing loading indicator to prevent flashing
   useEffect(() => {
@@ -34,27 +30,13 @@ export function ProtectedRoute({
   }, [isLoading]);
 
   useEffect(() => {
-    // If still loading, wait
-    if (isLoading) return;
-
-    // If authenticated or in guest mode, we're good
-    if (user || guestMode) return;
-
-    // Handle auth errors with retries
-    if (error && retryCount < 3) {
-      const timer = setTimeout(() => {
-        setRetryCount(prev => prev + 1);
-      }, 1000 * (retryCount + 1)); // Increasing backoff
-      return () => clearTimeout(timer);
-    }
-
     // If not authenticated and not in guest mode, save the intended URL
     if (typeof window !== 'undefined' && !user && !guestMode && !isLoading) {
       localStorage.setItem("redirectAfterAuth", location);
     }
-  }, [user, location, isLoading, guestMode, error, retryCount]);
+  }, [user, location, isLoading, guestMode]);
 
-  // Show nicer loading indicator with delayed appearance
+  // Show loading indicator
   if (isLoading && showLoading) {
     return (
       <Route path={path}>

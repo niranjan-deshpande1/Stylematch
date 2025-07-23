@@ -3,11 +3,11 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 // Track if guest mode is enabled
 let isGuestMode = false;
 
-// Initialize guest mode from sessionStorage or localStorage if in browser environment
+// Clear any existing guest mode state on app start - require explicit choice
 if (typeof window !== 'undefined') {
-  // Prefer sessionStorage for guest mode (cleaner when closing browser)
-  isGuestMode = sessionStorage.getItem('guestMode') === 'true' ||
-                localStorage.getItem('guestMode') === 'true';
+  // Clear guest mode state to force authentication choice
+  sessionStorage.removeItem('guestMode');
+  localStorage.removeItem('guestMode');
 }
 
 // Function to enable/disable guest mode headers in API requests

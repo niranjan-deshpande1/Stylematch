@@ -13,9 +13,15 @@ import type {
 // Helper function to enable/disable guest mode
 export function setGuestMode(enable: boolean) {
   if (typeof window !== 'undefined') {
-    // Store guest mode state in both storage types for better reliability
-    localStorage.setItem('guestMode', enable ? 'true' : 'false');
-    sessionStorage.setItem('guestMode', enable ? 'true' : 'false');
+    // Only use sessionStorage for guest mode (more secure, resets on browser close)
+    if (enable) {
+      sessionStorage.setItem('guestMode', 'true');
+    } else {
+      sessionStorage.removeItem('guestMode');
+    }
+
+    // Clear localStorage to avoid conflicts
+    localStorage.removeItem('guestMode');
 
     // Update request headers
     setGuestModeHeader(enable);
@@ -26,11 +32,8 @@ export function setGuestMode(enable: boolean) {
 export function isGuestMode(): boolean {
   if (typeof window === 'undefined') return false;
 
-  // Check both storage types, preferring sessionStorage
-  const sessionValue = sessionStorage.getItem('guestMode');
-  const localValue = localStorage.getItem('guestMode');
-
-  return sessionValue === 'true' || localValue === 'true';
+  // Only check sessionStorage for guest mode (more secure, resets on browser close)
+  return sessionStorage.getItem('guestMode') === 'true';
 }
 
 // Get all clothing items

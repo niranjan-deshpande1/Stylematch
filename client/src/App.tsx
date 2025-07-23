@@ -14,15 +14,11 @@ import OutfitIdeas from "@/pages/OutfitIdeas";
 import MissingPieces from "@/pages/MissingPieces";
 import StyleMatching from "@/pages/StyleMatching";
 import OutfitCreator from "@/pages/OutfitCreator";
-import Shopping from "@/pages/Shopping";
 import Privacy from "@/pages/Privacy";
 import Terms from "@/pages/Terms";
 import AuthPage from "@/pages/auth-page";
 import ComingSoonPage from "@/pages/coming-soon-page";
 import AdminPage from "@/pages/admin-page";
-import SwipeOnboarding from "./pages/SwipeOnboarding";
-import StyleProfile from "./components/onboarding/StyleProfile";
-import OnboardingComplete from "./pages/OnboardingComplete";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ProtectedRoute } from "@/lib/protected-route";
 import { useQuery } from "@tanstack/react-query";
@@ -49,9 +45,7 @@ function Router() {
     <Layout>
       <PageTransition>
         <Switch>
-          <Route path="/" component={Home} />
-          <Route path="/swipe-onboarding" component={SwipeOnboarding} />
-          <Route path="/onboarding-complete" component={OnboardingComplete} />
+          <ProtectedRoute path="/" component={Home} />
           <ProtectedRoute path="/closet" component={Closet} />
           <ProtectedRoute path="/inspiration" component={Inspiration} />
           <ProtectedRoute path="/inspiration-upload" component={InspirationUpload} />
@@ -61,7 +55,6 @@ function Router() {
           <ProtectedRoute path="/inspiration/:id/missing-pieces" component={MissingPieces} />
           <ProtectedRoute path="/inspiration/:id/style-matching" component={StyleMatching} />
           <ProtectedRoute path="/outfit-creator" component={OutfitCreator} />
-          <ProtectedRoute path="/shopping" component={Shopping} />
           <Route path="/auth" component={AuthPage} />
           <Route path="/privacy" component={Privacy} />
           <Route path="/terms" component={Terms} />

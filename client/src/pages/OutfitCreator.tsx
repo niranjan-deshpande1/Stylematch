@@ -8,26 +8,48 @@ import { Card, CardContent, CardHeader, CardFooter, CardTitle, CardDescription }
 import { StyleThemePalette, useStyleThemes } from '@/components/ui/style-theme-palette';
 import { SocialShareModal } from '@/components/ui/social-share-modal';
 import {
+  Tags,
+  Sun,
+  Calendar,
+  Flame,
   Shirt,
   Share2,
   Palette,
-  ArrowUp,
-  Sparkles
+  ArrowUp
 } from 'lucide-react';
 
-// Filter constants removed - now using swipe-based style preferences
+const SEASONS = [
+  { id: 'all-season', name: 'all season' },
+  { id: 'spring', name: 'spring' },
+  { id: 'summer', name: 'summer' },
+  { id: 'fall', name: 'fall' },
+  { id: 'winter', name: 'winter' },
+];
+
+const STYLES = [
+  { id: 'casual', name: 'casual' },
+  { id: 'formal', name: 'formal' },
+  { id: 'sporty', name: 'sporty' },
+  { id: 'bohemian', name: 'bohemian' },
+  { id: 'streetwear', name: 'streetwear' },
+  { id: 'minimalist', name: 'minimalist' },
+];
 
 export default function OutfitCreator() {
   const { toast } = useToast();
-  // Removed filters - now using swipe-based recommendations
+  const [filters, setFilters] = useState({
+    season: '',
+    style: '',
+  });
   const [selectedOutfit, setSelectedOutfit] = useState<string | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const { themes, selectedThemeId, setSelectedThemeId } = useStyleThemes();
 
-  // Get outfit combinations with theme preference only (no season/style filters)
+  // Get outfit combinations with theme preference
   const { data: outfits = [], isLoading: isLoadingOutfits } = useQuery({
-    queryKey: ['/api/outfits', selectedThemeId],
+    queryKey: ['/api/outfits', filters, selectedThemeId],
     queryFn: () => getOutfitCombinations({
+      ...filters,
       themeId: selectedThemeId || undefined
     }),
     retry: false
@@ -107,7 +129,12 @@ export default function OutfitCreator() {
     }
   }, [selectedThemeId, availableThemes]);
 
-  // Filter handling removed - using swipe-based preferences
+  const handleFilterChange = (key: keyof typeof filters, value: string) => {
+    setFilters(prev => ({
+      ...prev,
+      [key]: prev[key] === value ? '' : value
+    }));
+  };
 
   const handleShareOutfit = (outfit: OutfitCombination) => {
     setSelectedOutfit(outfit.id);
@@ -123,19 +150,57 @@ export default function OutfitCreator() {
         {/* Filters */}
         <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-lg mb-8">
           <h2 className="flex items-center text-zinc-300 mb-4 gap-2">
-            <Sparkles className="h-5 w-5" />
-            <span>personalized recommendations</span>
+            <Tags className="h-5 w-5" />
+            <span>filters</span>
           </h2>
 
-          <div className="text-center">
-            <p className="text-zinc-400 mb-4">
-              Outfit suggestions are now powered by your style preferences from swipe discovery.
-            </p>
-            <p className="text-xs text-zinc-500 mb-6">
-              Complete the swipe onboarding to get personalized recommendations based on your liked styles.
-            </p>
+          <div className="space-y-6">
 
-            {/* Style theme preferences - keep only this as it's based on closet items */}
+            {/* Season filter */}
+            <div>
+              <h3 className="text-sm text-zinc-400 mb-3">season</h3>
+              <div className="flex flex-wrap gap-2">
+                {SEASONS.map(season => (
+                  <Button
+                    key={season.id}
+                    variant={filters.season === season.id ? "default" : "outline"}
+                    size="sm"
+                    className={
+                      filters.season === season.id
+                        ? "hover:bg-zinc-700"
+                        : "border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+                    }
+                    onClick={() => handleFilterChange('season', season.id)}
+                  >
+                    {season.name}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* Style filter */}
+            <div>
+              <h3 className="text-sm text-zinc-400 mb-3">style</h3>
+              <div className="flex flex-wrap gap-2">
+                {STYLES.map(style => (
+                  <Button
+                    key={style.id}
+                    variant={filters.style === style.id ? "default" : "outline"}
+                    size="sm"
+                    className={
+                      filters.style === style.id
+                        ? "hover:bg-zinc-700"
+                        : "border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+                    }
+                    onClick={() => handleFilterChange('style', style.id)}
+                  >
+                    {style.name}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* Style theme preferences */}
             <div>
               <h3 className="text-sm text-zinc-400 mb-3">style theme</h3>
               <StyleThemePalette

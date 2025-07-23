@@ -2,16 +2,13 @@ import {
   users, type User, type InsertUser,
   inspirationImages, type InspirationImage, type InsertInspirationImage,
   clothingItems, type ClothingItem, type InsertClothingItem,
-  emailSignups, type EmailSignup, type InsertEmailSignup,
-  userSwipes, type UserSwipe, type InsertUserSwipe,
-  userStyleProfiles, type UserStyleProfile, type InsertUserStyleProfile
+  emailSignups, type EmailSignup, type InsertEmailSignup
 } from "@shared/schema";
 import session from "express-session";
 import memorystore from "memorystore";
-import { SupabaseStorage } from './supabase-storage.js';
 
-// Import PostgreSQL storage implementation
-import { PostgresStorage } from './db-storage';
+// Import Supabase storage implementation
+import * as db from './db';
 
 // Create a more reliable memory-based session store
 // This is better than the default MemoryStore for production
@@ -47,15 +44,6 @@ export interface IStorage {
   // Email signup methods
   createEmailSignup(email: string): Promise<EmailSignup>;
   getEmailSignups(): Promise<EmailSignup[]>;
-
-  // User swipe methods
-  createUserSwipe(swipe: InsertUserSwipe): Promise<UserSwipe>;
-  getUserSwipes(sessionId: string, userId?: number): Promise<UserSwipe[]>;
-  getSwipeHistory(sessionId: string): Promise<UserSwipe[]>;
-
-  // User style profile methods
-  createUserStyleProfile(profile: InsertUserStyleProfile): Promise<UserStyleProfile>;
-  getUserStyleProfile(sessionId: string, userId?: number): Promise<UserStyleProfile | undefined>;
 }
 
 // In-memory storage implementation
@@ -63,26 +51,18 @@ export class MemStorage implements IStorage {
   private users: Map<number, User>;
   private inspirationImages: Map<number, InspirationImage>;
   private clothingItems: Map<number, ClothingItem>;
-  private userSwipes: Map<number, UserSwipe>;
-  private userStyleProfiles: Map<number, UserStyleProfile>;
   private userCurrentId: number;
   private inspirationImageCurrentId: number;
   private clothingItemCurrentId: number;
-  private swipeCurrentId: number;
-  private profileCurrentId: number;
   public sessionStore: session.Store;
 
   constructor() {
     this.users = new Map();
     this.inspirationImages = new Map();
     this.clothingItems = new Map();
-    this.userSwipes = new Map();
-    this.userStyleProfiles = new Map();
     this.userCurrentId = 1;
     this.inspirationImageCurrentId = 1;
     this.clothingItemCurrentId = 1;
-    this.swipeCurrentId = 1;
-    this.profileCurrentId = 1;
 
     // Create an memory store
     this.sessionStore = new MemoryStore({
@@ -249,63 +229,116 @@ export class MemStorage implements IStorage {
     // For MemStorage, return empty array
     return [];
   }
+}
 
-  // User swipe methods
-  async createUserSwipe(swipe: InsertUserSwipe): Promise<UserSwipe> {
-    const id = this.swipeCurrentId++;
-    const newSwipe: UserSwipe = {
-      ...swipe,
-      id,
-      createdAt: new Date(),
-    };
-    this.userSwipes.set(id, newSwipe);
-    return newSwipe;
+// Supabase storage implementation using the functions from db.ts
+export class SupabaseStorage implements IStorage {
+  public sessionStore: session.Store;
+
+  constructor() {
+    // Create an memory store for sessions (can be migrated to Supabase later)
+    const MemoryStore = memorystore(session);
+    this.sessionStore = new MemoryStore({
+      checkPeriod: 86400000 // Prune expired entries every 24h
+    });
   }
 
-  async getUserSwipes(sessionId: string, userId?: number): Promise<UserSwipe[]> {
-    return Array.from(this.userSwipes.values())
-      .filter(swipe => {
-        if (userId) {
-          return swipe.sessionId === sessionId && swipe.userId === userId;
-        }
-        return swipe.sessionId === sessionId;
-      })
-      .sort((a, b) => new Date(a.createdAt!).getTime() - new Date(b.createdAt!).getTime());
+  // User methods
+  async getUser(id: number): Promise<User | undefined> {
+    return await db.getUser(id);
   }
 
-  async getSwipeHistory(sessionId: string): Promise<UserSwipe[]> {
-    return this.getUserSwipes(sessionId);
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return await db.getUserByUsername(username);
   }
 
-  // User style profile methods
-  async createUserStyleProfile(profile: InsertUserStyleProfile): Promise<UserStyleProfile> {
-    const id = this.profileCurrentId++;
-    const newProfile: UserStyleProfile = {
-      ...profile,
-      id,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    this.userStyleProfiles.set(id, newProfile);
-    return newProfile;
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return await db.getUserByEmail(email);
   }
 
-  async getUserStyleProfile(sessionId: string, userId?: number): Promise<UserStyleProfile | undefined> {
-    return Array.from(this.userStyleProfiles.values())
-      .find(profile => {
-        if (userId) {
-          return profile.sessionId === sessionId && profile.userId === userId;
-        }
-        return profile.sessionId === sessionId;
-      });
+  async createUser(user: InsertUser): Promise<User> {
+    return await db.createUser(user);
+  }
+
+  // Inspiration image methods
+  async getInspirationImages(userId?: number): Promise<InspirationImage[]> {
+    return await db.getInspirationImages(userId);
+  }
+
+  async getInspirationImage(id: number, userId?: number): Promise<InspirationImage | undefined> {
+    return await db.getInspirationImage(id, userId);
+  }
+
+  async createInspirationImage(image: InsertInspirationImage): Promise<InspirationImage> {
+    return await db.createInspirationImage(image);
+  }
+
+  async updateInspirationImageTags(id: number, tags: string[]): Promise<InspirationImage | undefined> {
+    return await db.updateInspirationImageTags(id, tags);
+  }
+
+  async updateInspirationImageSaved(id: number, isSaved: boolean): Promise<InspirationImage | undefined> {
+    return await db.updateInspirationImageSaved(id, isSaved);
+  }
+
+  async deleteInspirationImage(id: number): Promise<boolean> {
+    return await db.deleteInspirationImage(id);
+  }
+
+  // Clothing item methods
+  async getClothingItems(userId?: number): Promise<ClothingItem[]> {
+    return await db.getClothingItems(userId);
+  }
+
+  async getClothingItemsByCategory(category: string, userId?: number): Promise<ClothingItem[]> {
+    return await db.getClothingItemsByCategory(category, userId);
+  }
+
+  async getClothingItem(id: number, userId?: number): Promise<ClothingItem | undefined> {
+    return await db.getClothingItem(id, userId);
+  }
+
+  async createClothingItem(item: InsertClothingItem): Promise<ClothingItem> {
+    return await db.createClothingItem(item);
+  }
+
+  async updateClothingItemTags(id: number, tags: string[]): Promise<ClothingItem | undefined> {
+    return await db.updateClothingItemTags(id, tags);
+  }
+
+  async deleteClothingItem(id: number): Promise<boolean> {
+    return await db.deleteClothingItem(id);
+  }
+
+  // Email signup methods
+  async createEmailSignup(email: string): Promise<EmailSignup> {
+    return await db.createEmailSignup(email);
+  }
+
+  async getEmailSignups(): Promise<EmailSignup[]> {
+    return await db.getEmailSignups();
   }
 }
 
 // We will use Supabase storage for persistence, or fallback to memory storage
-// This handles both privacy and cross-device compatibility concerns
 let storageImplementation: IStorage;
 
-// Force using Supabase storage
-storageImplementation = new SupabaseStorage();
+try {
+  // Check if we have valid Supabase environment variables
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('Supabase environment variables not set. Using memory storage instead.');
+  }
+
+  // Try to use Supabase storage first
+  storageImplementation = new SupabaseStorage();
+} catch (error) {
+  // Fallback to memory storage if Supabase fails
+  console.warn('Failed to initialize Supabase storage, falling back to memory storage:', error);
+  storageImplementation = new MemStorage();
+
+  // Print warning to make it clear we're using in-memory storage
+  console.warn('USING IN-MEMORY STORAGE - DATA WILL BE LOST ON RESTART');
+  console.warn('To fix this issue, please set up valid Supabase credentials.');
+}
 
 export const storage = storageImplementation;

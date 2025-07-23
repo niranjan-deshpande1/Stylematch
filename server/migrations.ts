@@ -1,6 +1,4 @@
-import pg from 'pg';
-
-const { Pool } = pg;
+import { createClient } from '@supabase/supabase-js';
 
 interface Migration {
   version: number;
@@ -9,13 +7,13 @@ interface Migration {
   down: string;
 }
 
-// Database migrations for proper schema management
+// Database migrations for Supabase schema management
 const migrations: Migration[] = [
   {
     version: 1,
-    name: 'initial_schema',
+    name: 'initial_supabase_schema',
     up: `
-      -- Create users table
+      -- Create users table with Supabase-compatible structure
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
         email VARCHAR(255) UNIQUE NOT NULL,
@@ -24,33 +22,48 @@ const migrations: Migration[] = [
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- Create inspiration_images table
+      -- Create inspiration_images table (note: using "userId" to match existing code)
       CREATE TABLE IF NOT EXISTS inspiration_images (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-        image_url VARCHAR(255) NOT NULL,
-        tags TEXT[] DEFAULT '{}',
-        is_saved BOOLEAN DEFAULT false,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        "userId" INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        "imageUrl" VARCHAR(255) NOT NULL,
+        "styleTags" TEXT[] DEFAULT '{}',
+        "isSaved" BOOLEAN DEFAULT false,
+        "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- Create clothing_items table
+      -- Create clothing_items table (note: using "userId" to match existing code)
       CREATE TABLE IF NOT EXISTS clothing_items (
         id SERIAL PRIMARY KEY,
-        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-        name VARCHAR(255) NOT NULL,
+        "userId" INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        "imageUrl" VARCHAR(255) NOT NULL,
         category VARCHAR(100) NOT NULL,
-        image_url VARCHAR(255) NOT NULL,
-        tags TEXT[] DEFAULT '{}',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        "styleTags" TEXT[] DEFAULT '{}',
+        "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- Create indexes for better performance
+      -- Create indexes for better performance (only if they don't exist)
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
       CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
-      CREATE INDEX IF NOT EXISTS idx_inspiration_images_user_id ON inspiration_images(user_id);
-      CREATE INDEX IF NOT EXISTS idx_clothing_items_user_id ON clothing_items(user_id);
+      CREATE INDEX IF NOT EXISTS idx_inspiration_images_user_id ON inspiration_images("userId");
+      CREATE INDEX IF NOT EXISTS idx_clothing_items_user_id ON clothing_items("userId");
       CREATE INDEX IF NOT EXISTS idx_clothing_items_category ON clothing_items(category);
+
+      -- Ensure all columns exist (alter table if needed)
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'created_at') THEN
+          ALTER TABLE users ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'inspiration_images' AND column_name = 'createdAt') THEN
+          ALTER TABLE inspiration_images ADD COLUMN "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'clothing_items' AND column_name = 'createdAt') THEN
+          ALTER TABLE clothing_items ADD COLUMN "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        END IF;
+      END $$;
     `,
     down: `
       DROP TABLE IF EXISTS clothing_items;
@@ -87,107 +100,121 @@ const migrations: Migration[] = [
 ];
 
 export class MigrationRunner {
-  private pool: pg.Pool;
+  private supabase: any;
 
-  constructor(connectionString: string) {
-    this.pool = new Pool({
-      connectionString,
-      ssl: {
-        rejectUnauthorized: false
-      },
-      max: 5,
-      min: 1,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 30000,
-    });
+  constructor(supabaseUrl: string, supabaseServiceKey: string) {
+    this.supabase = createClient(supabaseUrl, supabaseServiceKey);
   }
 
   async runMigrations(): Promise<void> {
-    const client = await this.pool.connect();
-
     try {
       // Ensure migrations table exists
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS schema_migrations (
-          version INTEGER PRIMARY KEY,
-          name VARCHAR(255) NOT NULL,
-          applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-      `);
+      const { error: createError } = await this.supabase.rpc('exec_sql', {
+        sql: `
+          CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          );
+        `
+      });
+
+      if (createError) {
+        console.error('Error creating migrations table:', createError);
+        throw createError;
+      }
 
       // Get applied migrations
-      const appliedResult = await client.query(
-        'SELECT version FROM schema_migrations ORDER BY version'
-      );
-      const appliedVersions = new Set(appliedResult.rows.map(row => row.version));
+      const { data: appliedMigrations, error: fetchError } = await this.supabase
+        .from('schema_migrations')
+        .select('version')
+        .order('version');
+
+      if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 = table doesn't exist
+        console.error('Error fetching applied migrations:', fetchError);
+        throw fetchError;
+      }
+
+      const appliedVersions = new Set((appliedMigrations || []).map((row: any) => row.version));
 
       // Apply pending migrations
       for (const migration of migrations) {
         if (!appliedVersions.has(migration.version)) {
-          await client.query('BEGIN');
           try {
-            await client.query(migration.up);
-            await client.query(
-              'INSERT INTO schema_migrations (version, name) VALUES ($1, $2)',
-              [migration.version, migration.name]
-            );
-            await client.query('COMMIT');
+            // Execute migration SQL
+            const { error: migrationError } = await this.supabase.rpc('exec_sql', {
+              sql: migration.up
+            });
+
+            if (migrationError) {
+              console.error(`Failed to apply migration ${migration.version}:`, migrationError);
+              throw migrationError;
+            }
+
+            // Record migration as applied
+            const { error: recordError } = await this.supabase
+              .from('schema_migrations')
+              .insert([{ version: migration.version, name: migration.name }]);
+
+            if (recordError) {
+              console.error(`Failed to record migration ${migration.version}:`, recordError);
+              throw recordError;
+            }
           } catch (error) {
-            await client.query('ROLLBACK');
             console.error(`Failed to apply migration ${migration.version}:`, error);
             throw error;
           }
         }
       }
-    } finally {
-      client.release();
+    } catch (error) {
+      console.error('Migration process failed:', error);
+      throw error;
     }
   }
 
   async rollbackMigration(version: number): Promise<void> {
-    const client = await this.pool.connect();
-
     try {
       const migration = migrations.find(m => m.version === version);
       if (!migration) {
         throw new Error(`Migration version ${version} not found`);
       }
 
-      await client.query('BEGIN');
-      try {
-        await client.query(migration.down);
-        await client.query(
-          'DELETE FROM schema_migrations WHERE version = $1',
-          [version]
-        );
-        await client.query('COMMIT');
-      } catch (error) {
-        await client.query('ROLLBACK');
-        console.error(`Failed to rollback migration ${version}:`, error);
-        throw error;
-      }
-    } finally {
-      client.release();
-    }
-  }
+      // Execute rollback SQL
+      const { error: rollbackError } = await this.supabase.rpc('exec_sql', {
+        sql: migration.down
+      });
 
-  async close(): Promise<void> {
-    await this.pool.end();
+      if (rollbackError) {
+        console.error(`Failed to rollback migration ${version}:`, rollbackError);
+        throw rollbackError;
+      }
+
+      // Remove migration record
+      const { error: deleteError } = await this.supabase
+        .from('schema_migrations')
+        .delete()
+        .eq('version', version);
+
+      if (deleteError) {
+        console.error(`Failed to remove migration record ${version}:`, deleteError);
+        throw deleteError;
+      }
+    } catch (error) {
+      console.error('Migration rollback failed:', error);
+      throw error;
+    }
   }
 }
 
-// Initialize and run migrations
+// Initialize and run migrations for Supabase
 export async function initializeMigrations(): Promise<void> {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error('DATABASE_URL environment variable is required');
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return;
   }
 
-  const runner = new MigrationRunner(connectionString);
-
-  try {
-    await runner.runMigrations();
-  } finally {
-    await runner.close();
-  }
+  const runner = new MigrationRunner(supabaseUrl, supabaseServiceKey);
+  await runner.runMigrations();
 }

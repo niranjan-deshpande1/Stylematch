@@ -6,8 +6,8 @@ import { Link, useRoute } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ChevronRight, Info, Check, ExternalLink, Tag, ShoppingCart } from "lucide-react";
-import type { MissingPiece, ProductExample, ProductRecommendation } from "@shared/schema";
+import { ArrowLeft, ChevronRight, Info, Check, ExternalLink, Tag } from "lucide-react";
+import type { MissingPiece, ProductExample } from "@shared/schema";
 import { cn } from "@/lib/utils";
 
 export default function MissingPieces() {
@@ -31,7 +31,7 @@ export default function MissingPieces() {
 
   // Get missing pieces recommendations
   const { 
-    data: missingPiecesData,
+    data: missingPieces,
     isLoading: isLoadingMissingPieces,
     error
   } = useQuery({
@@ -42,9 +42,6 @@ export default function MissingPieces() {
     },
     enabled: !!inspirationId,
   });
-
-  const missingPieces = missingPiecesData?.missingPieces || [];
-  const shoppingRecommendations = missingPiecesData?.shoppingRecommendations?.recommendations || [];
   
   const isLoading = isLoadingMissingPieces || isLoadingInspirationImage;
 
@@ -255,91 +252,6 @@ export default function MissingPieces() {
       <p className="text-zinc-400 mb-8 max-w-3xl">
         based on your inspiration image and existing closet, here are the pieces we recommend adding to complete your look:
       </p>
-
-      {/* Shopping Recommendations Section */}
-      {shoppingRecommendations && shoppingRecommendations.length > 0 && (
-        <div className="mb-12">
-          <h3 className="text-2xl font-light text-zinc-300 mb-6">
-            <ShoppingCart className="inline h-6 w-6 mr-2" />
-            Shop Similar Items
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {shoppingRecommendations.map((product: ProductRecommendation) => (
-              <Card 
-                key={product.id} 
-                className="bg-zinc-900 border-zinc-800 hover:border-zinc-700 transition-colors cursor-pointer group"
-                onClick={() => window.open(product.productUrl, '_blank')}
-              >
-                <CardHeader className="p-0">
-                  <div className="aspect-square bg-zinc-800 rounded-t-lg overflow-hidden">
-                    <img 
-                      src={product.imageUrl} 
-                      alt={product.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                  </div>
-                </CardHeader>
-                <CardContent className="p-4">
-                  <div className="space-y-2">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <CardTitle className="text-lg font-medium text-zinc-300 line-clamp-2">
-                          {product.title}
-                        </CardTitle>
-                        <CardDescription className="text-zinc-500 text-sm">
-                          {product.brand}
-                        </CardDescription>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-lg font-semibold text-zinc-300">
-                          ${product.price}
-                        </div>
-                        <div className="text-xs text-zinc-500">
-                          {product.matchScore}% match
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <p className="text-sm text-zinc-400 line-clamp-2">
-                      {product.description}
-                    </p>
-                    
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {product.styleTags.slice(0, 3).map((tag) => (
-                        <Badge 
-                          key={tag} 
-                          variant="secondary" 
-                          className="text-xs bg-zinc-800 text-zinc-400 border-zinc-700"
-                        >
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                    
-                    <div className="pt-2 border-t border-zinc-800">
-                      <p className="text-xs text-zinc-500">
-                        {product.matchReason}
-                      </p>
-                    </div>
-                    
-                    <Button 
-                      className="w-full mt-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        window.open(product.productUrl, '_blank');
-                      }}
-                    >
-                      <ShoppingCart className="h-4 w-4 mr-2" />
-                      View Product
-                      <ExternalLink className="h-4 w-4 ml-2" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
 
       {missingPieces && missingPieces.length > 0 ? (
         <div className="grid gap-6 mt-4">
