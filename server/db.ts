@@ -440,7 +440,7 @@ export async function deleteClothingItem(id: number): Promise<boolean> {
 export async function createEmailSignup(email: string): Promise<any> {
   try {
     const { data, error } = await supabase
-      .from('email_signups')
+      .from('waitlist_signups')
       .insert([{ email }])
       .select()
       .single();
@@ -460,7 +460,7 @@ export async function createEmailSignup(email: string): Promise<any> {
 export async function getEmailSignups(): Promise<any[]> {
   try {
     const { data, error } = await supabase
-      .from('email_signups')
+      .from('waitlist_signups')
       .select('*')
       .order('created_at', { ascending: false });
 

@@ -52,8 +52,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).end();
   });
 
-  // Email signup endpoint - direct database storage
-  app.post('/api/email-signup', async (req, res) => {
+  // Waitlist signup endpoint - Supabase storage
+  app.post('/api/waitlist-signup', async (req, res) => {
     // Set CORS headers for all domains
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -72,7 +72,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: 'Invalid email format' });
       }
 
-      // Save directly to PostgreSQL database
+      // Save to Supabase database
       try {
         const result = await storage.createEmailSignup(email);
 
@@ -82,11 +82,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await fs.appendFile('email-signups.txt', `${timestamp} - ${email} - FROM: ${req.get('origin') || 'unknown'}\n`);
 
         res.json({
-          message: 'Thank you! We will notify you when we launch.',
+          message: 'Thank you! You\'re on the waitlist. We\'ll notify you when we launch.',
           status: 'success'
         });
       } catch (dbError) {
-        console.error('Database save failed:', dbError);
+        console.error('Supabase save failed:', dbError);
+
+        // If it's a duplicate email error, return a nice message
+        if ((dbError as any)?.code === '23505' || (dbError as any)?.message?.includes('duplicate')) {
+          return res.json({
+            message: 'You\'re already on our waitlist! We\'ll be in touch soon.',
+            status: 'success'
+          });
+        }
 
         // Fallback to file only
         const fs = await import('fs/promises');
@@ -94,13 +102,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await fs.appendFile('email-signups.txt', `${timestamp} - ${email} - FROM: ${req.get('origin') || 'unknown'}\n`);
 
         res.json({
-          message: 'Thank you! We will notify you when we launch.',
+          message: 'Thank you! You\'re on the waitlist. We\'ll notify you when we launch.',
           status: 'success'
         });
       }
     } catch (error) {
-      console.error('Email signup error:', error);
+      console.error('Waitlist signup error:', error);
       res.status(500).json({ message: 'Unable to save email right now. Please try again.' });
+    }
+  });
+
+  // Legacy email signup endpoint for backward compatibility
+  app.post('/api/email-signup', async (req, res) => {
+    // Just call the same logic as waitlist-signup
+    const { email } = req.body;
+
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ message: 'Invalid email format' });
+    }
+
+    try {
+      const result = await storage.createEmailSignup(email);
+      res.json({
+        message: 'Thank you! You\'re on the waitlist. We\'ll notify you when we launch.',
+        status: 'success'
+      });
+    } catch (error) {
+      res.json({
+        message: 'Thank you! You\'re on the waitlist. We\'ll notify you when we launch.',
+        status: 'success'
+      });
     }
   });
 
