@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getOutfitCombinations, getClothingItems, getOutfit } from '@/lib/api';
+import { getClothingItems, getOutfit } from '@/lib/api';
+import { apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import { ClothingItem, OutfitCombination } from '@shared/schema';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardFooter, CardTitle, CardDescription } from '@/components/ui/card';
-import { StyleThemePalette, useStyleThemes } from '@/components/ui/style-theme-palette';
 import { SocialShareModal } from '@/components/ui/social-share-modal';
 import {
   Tags,
@@ -15,7 +15,8 @@ import {
   Shirt,
   Share2,
   Palette,
-  ArrowUp
+  ArrowUp,
+  Sparkles
 } from 'lucide-react';
 
 const SEASONS = [
@@ -26,52 +27,127 @@ const SEASONS = [
   { id: 'winter', name: 'winter' },
 ];
 
-const STYLES = [
-  { id: 'casual', name: 'casual' },
-  { id: 'formal', name: 'formal' },
-  { id: 'sporty', name: 'sporty' },
-  { id: 'bohemian', name: 'bohemian' },
-  { id: 'streetwear', name: 'streetwear' },
-  { id: 'minimalist', name: 'minimalist' },
+// Remove old styles - replaced with style themes below
+
+const STYLE_THEMES = [
+  { id: 'chill', name: 'chill', description: 'relaxed and comfortable' },
+  { id: 'old-money', name: 'old money', description: 'timeless elegance' },
+  { id: 'streetwear', name: 'streetwear', description: 'urban and trendy' },
+  { id: 'minimalist', name: 'minimalist', description: 'clean and simple' },
+  { id: 'boho', name: 'boho', description: 'free-spirited and artistic' },
+  { id: 'preppy', name: 'preppy', description: 'classic and polished' },
+  { id: 'edgy', name: 'edgy', description: 'bold and alternative' },
+  { id: 'romantic', name: 'romantic', description: 'soft and feminine' },
 ];
 
 export default function OutfitCreator() {
   const { toast } = useToast();
   const [filters, setFilters] = useState({
     season: '',
-    style: '',
+    styleTheme: '',
   });
   const [selectedOutfit, setSelectedOutfit] = useState<string | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
-  const { themes, selectedThemeId, setSelectedThemeId } = useStyleThemes();
 
-  // Get outfit combinations with theme preference
-  const { data: outfits = [], isLoading: isLoadingOutfits } = useQuery({
-    queryKey: ['/api/outfits', filters, selectedThemeId],
-    queryFn: () => getOutfitCombinations({
-      ...filters,
-      themeId: selectedThemeId || undefined
-    }),
-    retry: false
-  } as any);
-
-  // Get all clothing items for display
+  // Get all clothing items first
   const { data: allClothingItems = [], isLoading: isLoadingItems } = useQuery({
     queryKey: ['/api/closet'],
     queryFn: () => getClothingItems(),
   });
 
-  // Get selected outfit items
-  const { data: selectedOutfitData } = useQuery({
-    queryKey: ['/api/outfits', selectedOutfit],
-    queryFn: () => getOutfit(selectedOutfit!),
-    enabled: !!selectedOutfit,
+  // Generate outfits using LLM API
+  const { data: outfitsResponse, isLoading: isLoadingOutfits } = useQuery({
+    queryKey: ['/api/chat/outfits', filters, allClothingItems?.length],
+    queryFn: async () => {
+      if (!allClothingItems?.length) return { outfits: [], error: null };
+
+      // Check minimum requirements
+      const tops = allClothingItems.filter(item => item.category === 'tops');
+      const bottoms = allClothingItems.filter(item => item.category === 'bottoms');
+      const shoes = allClothingItems.filter(item => item.category === 'shoes');
+
+      if (tops.length === 0 || bottoms.length === 0) {
+        return {
+          outfits: [],
+          error: "Your closet needs at least one top and one bottom to create outfits."
+        };
+      }
+
+      // Categorize items for the LLM prompt
+      const accessories = allClothingItems.filter(item => item.category === 'accessories');
+      const outerwear = allClothingItems.filter(item => item.category === 'outerwear');
+
+      // Build the LLM prompt
+      const seasonText = filters.season ? ` for ${filters.season} season` : '';
+      const themeText = filters.styleTheme ? ` with ${filters.styleTheme} aesthetic` : '';
+
+      const prompt = `You are a professional fashion stylist. Create 6-8 unique outfit combinations from this user's closet${seasonText}${themeText}.
+
+CLOTHING INVENTORY:
+TOPS (${tops.length}): ${tops.map(t => `${t.id}: ${t.category} - ${t.styleTags?.join(', ')}`).join('; ')}
+BOTTOMS (${bottoms.length}): ${bottoms.map(b => `${b.id}: ${b.category} - ${b.styleTags?.join(', ')}`).join('; ')}
+SHOES (${shoes.length}): ${shoes.map(s => `${s.id}: ${s.category} - ${s.styleTags?.join(', ')}`).join('; ')}
+${outerwear.length > 0 ? `OUTERWEAR (${outerwear.length}): ${outerwear.map(o => `${o.id}: ${o.category} - ${o.styleTags?.join(', ')}`).join('; ')}` : ''}
+${accessories.length > 0 ? `ACCESSORIES (${accessories.length}): ${accessories.map(a => `${a.id}: ${a.category} - ${a.styleTags?.join(', ')}`).join('; ')}` : ''}
+
+rules:
+- each outfit has exactly one top and one bottom
+- include shoes when there are any (${shoes.length} available)
+- use accessories and outerwear when they fit
+- 3 to 5 items per outfit
+- don't repeat a top and bottom pair
+- keep colors and styles coordinated
+
+${filters.styleTheme ? `STYLE THEME: Focus on ${STYLE_THEMES.find(t => t.id === filters.styleTheme)?.description} aesthetic` : ''}
+
+Return JSON format:
+{
+  "outfits": [
+    {
+      "name": "Creative outfit name",
+      "description": "Brief styling explanation",
+      "items": [item_id_numbers],
+      "style": "${filters.styleTheme || 'mixed'}",
+      "season": "${filters.season || 'versatile'}",
+      "occasion": "recommended_occasion"
+    }
+  ]
+}`;
+
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: prompt })
+        });
+
+        const data = await response.json();
+        const parsedOutfits = JSON.parse(data.response);
+        return {
+          outfits: parsedOutfits.outfits || [],
+          error: null
+        };
+      } catch (parseError) {
+        console.error('Failed to parse LLM outfit response:', parseError);
+        return {
+          outfits: [],
+          error: "AI couldn't generate outfits. Please try different filters."
+        };
+      }
+    },
+    enabled: !!allClothingItems?.length,
+    retry: false,
+    staleTime: 5 * 60 * 1000, // Cache for 5 minutes
   });
 
   const isLoading = isLoadingOutfits || isLoadingItems;
+  const outfits = outfitsResponse?.outfits || [];
+  const outfitsError = outfitsResponse?.error;
 
   // Get clothing items for a specific outfit
   const getOutfitItems = (outfit: OutfitCombination): ClothingItem[] => {
+    if (!outfit.items || !allClothingItems) return [];
+
     // Convert item ids to numbers if they are strings to ensure proper matching
     const outfitItemIds = outfit.items.map(id =>
       typeof id === 'string' ? parseInt(id, 10) : id
@@ -84,50 +160,6 @@ export default function OutfitCreator() {
 
     return matchedItems;
   };
-
-  // Filter available themes based on closet content
-  const getAvailableThemes = () => {
-    // Always include neutral and monochrome as they work with any closet
-    const alwaysAvailableThemes = ['neutral', 'monochrome', 'dark'];
-
-    // Define theme keyword associations
-    const themeKeywords: Record<string, string[]> = {
-      'pastel': ['pastel', 'light', 'soft', 'gentle', 'baby blue', 'light pink', 'lavender', 'mint'],
-      'vibrant': ['vibrant', 'bright', 'bold', 'colorful', 'neon', 'saturated', 'vivid'],
-      'earthy': ['earthy', 'natural', 'earth tone', 'brown', 'beige', 'olive', 'terracotta', 'khaki'],
-      'cool': ['cool', 'blue', 'teal', 'green', 'turquoise', 'navy', 'aqua', 'ice'],
-      'warm': ['warm', 'red', 'orange', 'yellow', 'amber', 'gold', 'burgundy', 'rust']
-    };
-
-    // Extract all tags from closet items
-    const allTags = allClothingItems.flatMap(item => item.styleTags || []);
-
-    // Determine which themes match the closet content
-    const matchingThemeIds = Object.entries(themeKeywords).reduce((acc, [themeId, keywords]) => {
-      const hasMatchingItems = keywords.some(keyword =>
-        allTags.some(tag => tag.toLowerCase().includes(keyword.toLowerCase()))
-      );
-
-      if (hasMatchingItems) {
-        acc.push(themeId);
-      }
-
-      return acc;
-    }, [...alwaysAvailableThemes]);
-
-    // Return filtered themes
-    return themes.filter(theme => matchingThemeIds.includes(theme.id));
-  };
-
-  // Get the filtered themes based on closet content
-  const availableThemes = getAvailableThemes();
-
-  // Clear any selected theme that's not available
-  React.useEffect(() => {
-    if (selectedThemeId && !availableThemes.some(theme => theme.id === selectedThemeId)) {
-      setSelectedThemeId(undefined);
-    }
-  }, [selectedThemeId, availableThemes]);
 
   const handleFilterChange = (key: keyof typeof filters, value: string) => {
     setFilters(prev => ({
@@ -178,43 +210,30 @@ export default function OutfitCreator() {
               </div>
             </div>
 
-            {/* Style filter */}
-            <div>
-              <h3 className="text-sm text-zinc-400 mb-3">style</h3>
-              <div className="flex flex-wrap gap-2">
-                {STYLES.map(style => (
-                  <Button
-                    key={style.id}
-                    variant={filters.style === style.id ? "default" : "outline"}
-                    size="sm"
-                    className={
-                      filters.style === style.id
-                        ? "hover:bg-zinc-700"
-                        : "border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
-                    }
-                    onClick={() => handleFilterChange('style', style.id)}
-                  >
-                    {style.name}
-                  </Button>
-                ))}
-              </div>
-            </div>
-
             {/* Style theme preferences */}
             <div>
               <h3 className="text-sm text-zinc-400 mb-3">style theme</h3>
-              <StyleThemePalette
-                themes={availableThemes}
-                selectedThemeId={selectedThemeId}
-                onSelectTheme={setSelectedThemeId}
-                className="mb-4"
-              />
-              <div className="text-center">
+              <div className="flex flex-wrap gap-2">
+                {STYLE_THEMES.map(theme => (
+                  <Button
+                    key={theme.id}
+                    variant={filters.styleTheme === theme.id ? "default" : "outline"}
+                    size="sm"
+                    className={
+                      filters.styleTheme === theme.id
+                        ? "hover:bg-zinc-700"
+                        : "border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+                    }
+                    onClick={() => handleFilterChange('styleTheme', theme.id)}
+                    title={theme.description}
+                  >
+                    {theme.name}
+                  </Button>
+                ))}
+              </div>
+              <div className="text-center mt-2">
                 <p className="text-xs text-zinc-500 italic">
                   select a style theme to influence your outfit suggestions
-                </p>
-                <p className="text-xs text-zinc-500 mt-1">
-                  showing themes based on your closet items
                 </p>
               </div>
             </div>
@@ -227,12 +246,25 @@ export default function OutfitCreator() {
         </h2>
 
         {isLoading ? (
-          <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
+          <div className="flex flex-col justify-center items-center h-64">
+            <Sparkles className="h-12 w-12 mb-4 text-purple-400 animate-pulse" />
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mb-4"></div>
+            <p className="text-zinc-400 text-center">AI is creating your outfits...</p>
           </div>
-        ) : (outfits as OutfitCombination[]).length > 0 ? (
+        ) : outfitsError ? (
+          <div className="text-center py-12 bg-zinc-900 border border-zinc-800 rounded-lg">
+            <Flame className="h-16 w-16 mx-auto mb-4 text-zinc-700" />
+            <h3 className="text-xl mb-2">couldn't create outfits</h3>
+            <p className="text-zinc-500 mb-6 max-w-md mx-auto">
+              {outfitsError}
+            </p>
+            <Button onClick={() => setFilters({ season: '', styleTheme: '' })}>
+              clear filters
+            </Button>
+          </div>
+        ) : outfits.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {(outfits as OutfitCombination[]).map((outfit: OutfitCombination, index: number) => {
+            {outfits.map((outfit: any, index: number) => {
               const outfitItems = getOutfitItems(outfit);
               const outfitKey = outfit.id || `outfit-${index}-${outfit.items?.join('-') || 'unknown'}`;
               return (
@@ -317,7 +349,7 @@ export default function OutfitCreator() {
             <p className="text-zinc-500 mb-6 max-w-md mx-auto">
               Try changing your filters or adding more items to your closet.
             </p>
-            <Button onClick={() => setFilters({ season: '', style: '' })}>
+            <Button onClick={() => setFilters({ season: '', styleTheme: '' })}>
               clear filters
             </Button>
           </div>
@@ -330,12 +362,8 @@ export default function OutfitCreator() {
           open={shareModalOpen}
           onOpenChange={setShareModalOpen}
           outfitId={selectedOutfit}
-          outfitName={selectedOutfitData?.name || "custom"}
-          outfitItems={
-            selectedOutfitData
-              ? getOutfitItems(selectedOutfitData)
-              : []
-          }
+          outfitName="custom outfit"
+          outfitItems={[]}
         />
       )}
     </section>

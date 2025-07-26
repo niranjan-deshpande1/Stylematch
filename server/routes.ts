@@ -858,6 +858,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(404).json({ message: 'Outfit not found' });
   });
 
+  // Chat endpoint for LLM-powered outfit generation
+  app.post('/api/chat', async (req, res) => {
+    try {
+      const { message } = req.body;
+
+      if (!message) {
+        return res.status(400).json({ error: 'Message is required' });
+      }
+
+      // Use OpenAI to process the message
+      const openai = new (await import("openai")).default({
+        apiKey: process.env.OPENAI_API_KEY
+      });
+
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: "You are a fashion stylist. Respond with JSON only."
+          },
+          {
+            role: "user",
+            content: message
+          }
+        ],
+        response_format: { type: "json_object" },
+        max_tokens: 2000,
+      });
+
+      const aiResponse = response.choices[0].message.content;
+
+      res.json({
+        response: aiResponse,
+        status: 'success'
+      });
+    } catch (error) {
+      console.error('Chat endpoint error:', error);
+      res.status(500).json({
+        error: 'Failed to process chat request',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
   // Health check endpoint
   app.get('/api/health', (_req, res) => {
     res.status(200).json({ status: 'healthy' });
