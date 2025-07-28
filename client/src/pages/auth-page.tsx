@@ -242,9 +242,17 @@ export default function AuthPage() {
     }
   }, []);
 
-  // Check if user is already logged in and redirect
+  // Redirect if user is already authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      const redirectPath = localStorage.getItem("redirectAfterAuth") || "/";
+      navigate(redirectPath);
+      localStorage.removeItem("redirectAfterAuth");
+    }
+  }, [isAuthenticated, navigate]);
+
+  // Don't render the form if user is authenticated
   if (isAuthenticated) {
-    navigate("/");
     return null;
   }
 
