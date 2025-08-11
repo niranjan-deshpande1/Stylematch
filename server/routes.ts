@@ -152,11 +152,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all inspiration images - always return content regardless of auth status
   app.get('/api/inspiration', async (req, res) => {
     try {
-      // not logged in, so use the guest id
-      // This ensures content is always available regardless of login status
-      const userId = req.user?.id || 9999;
+      // Use the proper getUserId function to get session-isolated guest IDs
+      const userId = getUserId(req);
 
-      // Get images with this userId (either actual user or guest user)
+      if (userId === null) {
+        // If not authenticated and not in guest mode, return empty array
+        return res.json([]);
+      }
+
+      // Get images with this userId (either actual user or session-specific guest user)
       const images = await storage.getInspirationImages(userId);
 
       // Always return images, even if the array is empty
@@ -174,9 +178,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Authenticated user, return their actual ID
       return req.user.id;
     } else if (req.headers['x-guest-mode'] === 'true' || req.query.guestMode === 'true') {
-      // For guest users, use a designated guest ID (9999)
-      // This ensures guest content doesn't interfere with real users
-      return 9999;
+      // For guest users, create a unique ID based on their session ID
+      // This ensures each guest session has isolated content
+      if (req.sessionID) {
+        // Convert session ID to a consistent negative number to avoid conflicts with real user IDs
+        // Use a hash of the session ID to ensure consistency across requests
+        const hash = req.sessionID.split('').reduce((a, b) => {
+          a = ((a << 5) - a) + b.charCodeAt(0);
+          return a & a; // Convert to 32-bit integer
+        }, 0);
+        // Use negative numbers for guests to avoid conflicts with positive user IDs
+        // Ensure it's always negative and not -0
+        return Math.abs(hash) * -1 - 1;
+      }
+      // Fallback to shared guest ID if no session ID (shouldn't happen)
+      return -9999;
     }
 
     // User is neither authenticated nor in guest mode
@@ -454,16 +470,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const id = parseInt(req.params.id);
 
-      // Check for guest mode directly (similar to our updated inspiration endpoint)
-      const isGuestMode = req.headers['x-guest-mode'] === 'true' || req.query.guestMode === 'true';
+      // Use the proper getUserId function to get session-isolated guest IDs
+      const userId = getUserId(req);
 
-      // Get user ID, defaulting to guest ID in guest mode
-      let userId = req.user?.id as number | null;
-      if (isGuestMode && !userId) {
-        userId = 9999; // Guest mode ID
-      }
-
-      // If there's no user ID at this point, we're not in guest mode and not authenticated
       if (userId === null) {
         return res.status(401).json({ message: 'Authentication required' });
       }
