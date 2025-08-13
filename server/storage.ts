@@ -29,17 +29,17 @@ export interface IStorage {
   getInspirationImages(userId?: number): Promise<InspirationImage[]>;
   getInspirationImage(id: number, userId?: number): Promise<InspirationImage | undefined>;
   createInspirationImage(image: InsertInspirationImage): Promise<InspirationImage>;
-  updateInspirationImageTags(id: number, tags: string[]): Promise<InspirationImage | undefined>;
-  updateInspirationImageSaved(id: number, isSaved: boolean): Promise<InspirationImage | undefined>;
-  deleteInspirationImage(id: number): Promise<boolean>;
+  updateInspirationImageTags(id: number, tags: string[], userId?: number): Promise<InspirationImage | undefined>;
+  updateInspirationImageSaved(id: number, isSaved: boolean, userId?: number): Promise<InspirationImage | undefined>;
+  deleteInspirationImage(id: number, userId?: number): Promise<boolean>;
 
   // Clothing item methods
   getClothingItems(userId?: number): Promise<ClothingItem[]>;
   getClothingItemsByCategory(category: string, userId?: number): Promise<ClothingItem[]>;
   getClothingItem(id: number, userId?: number): Promise<ClothingItem | undefined>;
   createClothingItem(item: InsertClothingItem): Promise<ClothingItem>;
-  updateClothingItemTags(id: number, tags: string[]): Promise<ClothingItem | undefined>;
-  deleteClothingItem(id: number): Promise<boolean>;
+  updateClothingItemTags(id: number, tags: string[], userId?: number): Promise<ClothingItem | undefined>;
+  deleteClothingItem(id: number, userId?: number): Promise<boolean>;
 
   // Email signup methods
   createEmailSignup(email: string): Promise<EmailSignup>;
@@ -273,16 +273,16 @@ export class SupabaseStorage implements IStorage {
     return await db.createInspirationImage(image);
   }
 
-  async updateInspirationImageTags(id: number, tags: string[]): Promise<InspirationImage | undefined> {
-    return await db.updateInspirationImageTags(id, tags);
+  async updateInspirationImageTags(id: number, tags: string[], userId?: number): Promise<InspirationImage | undefined> {
+    return await db.updateInspirationImageTags(id, tags, userId);
   }
 
-  async updateInspirationImageSaved(id: number, isSaved: boolean): Promise<InspirationImage | undefined> {
-    return await db.updateInspirationImageSaved(id, isSaved);
+  async updateInspirationImageSaved(id: number, isSaved: boolean, userId?: number): Promise<InspirationImage | undefined> {
+    return await db.updateInspirationImageSaved(id, isSaved, userId);
   }
 
-  async deleteInspirationImage(id: number): Promise<boolean> {
-    return await db.deleteInspirationImage(id);
+  async deleteInspirationImage(id: number, userId?: number): Promise<boolean> {
+    return await db.deleteInspirationImage(id, userId);
   }
 
   // Clothing item methods
@@ -302,12 +302,12 @@ export class SupabaseStorage implements IStorage {
     return await db.createClothingItem(item);
   }
 
-  async updateClothingItemTags(id: number, tags: string[]): Promise<ClothingItem | undefined> {
-    return await db.updateClothingItemTags(id, tags);
+  async updateClothingItemTags(id: number, tags: string[], userId?: number): Promise<ClothingItem | undefined> {
+    return await db.updateClothingItemTags(id, tags, userId);
   }
 
-  async deleteClothingItem(id: number): Promise<boolean> {
-    return await db.deleteClothingItem(id);
+  async deleteClothingItem(id: number, userId?: number): Promise<boolean> {
+    return await db.deleteClothingItem(id, userId);
   }
 
   // Email signup methods

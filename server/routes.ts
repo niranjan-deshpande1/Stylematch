@@ -255,7 +255,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tags = await analyzeOutfitImage(base64Image);
 
       // Update inspiration image with tags
-      const updatedImage = await storage.updateInspirationImageTags(id, tags);
+      const updatedImage = await storage.updateInspirationImageTags(id, tags, userId);
 
       res.json(updatedImage);
     } catch (error) {
@@ -285,7 +285,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const filepath = path.join(uploadDir, filename);
 
       // Delete from storage
-      const deleted = await storage.deleteInspirationImage(id);
+      const deleted = await storage.deleteInspirationImage(id, userId);
 
       // Also delete physical file if needed
       try {
@@ -320,7 +320,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: 'Inspiration image not found' });
       }
 
-      const updated = await storage.updateInspirationImageSaved(id, !image.isSaved);
+      const updated = await storage.updateInspirationImageSaved(id, !image.isSaved, userId);
       res.json(updated);
     } catch (error) {
       console.error('Error saving inspiration:', error);
@@ -417,7 +417,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tags = await analyzeClothingImage(base64Image);
 
       // Update clothing item with tags
-      const updatedItem = await storage.updateClothingItemTags(id, tags);
+      const updatedItem = await storage.updateClothingItemTags(id, tags, userId);
 
       res.json(updatedItem);
     } catch (error) {
@@ -443,7 +443,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Delete item from storage
-      const deleted = await storage.deleteClothingItem(id);
+      const deleted = await storage.deleteClothingItem(id, userId);
 
       if (deleted) {
         // Try to delete the image file but don't fail if it doesn't exist

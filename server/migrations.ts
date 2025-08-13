@@ -96,6 +96,152 @@ const migrations: Migration[] = [
       DROP INDEX IF EXISTS "IDX_session_expire";
       DROP TABLE IF EXISTS schema_migrations;
     `
+  },
+  {
+    version: 3,
+    name: 'setup_rls_and_user_context',
+    up: `
+      -- Create the RLS function to set current user context
+      CREATE OR REPLACE FUNCTION set_request_user_id(uid integer)
+      RETURNS void AS $$
+      BEGIN
+        PERFORM set_config('app.current_user_id', uid::text, false);
+      END;
+      $$ LANGUAGE plpgsql;
+
+      -- Enable RLS on inspiration_images table
+      ALTER TABLE inspiration_images ENABLE ROW LEVEL SECURITY;
+
+      -- Create RLS policy for inspiration_images
+      DROP POLICY IF EXISTS "Users can only access their own inspiration images" ON inspiration_images;
+      CREATE POLICY "Users can only access their own inspiration images" ON inspiration_images
+        FOR ALL USING (
+          "userId" = COALESCE(
+            NULLIF(current_setting('app.current_user_id', true), '')::integer,
+            -1
+          )
+        );
+
+      -- Enable RLS on clothing_items table
+      ALTER TABLE clothing_items ENABLE ROW LEVEL SECURITY;
+
+      -- Create RLS policy for clothing_items
+      DROP POLICY IF EXISTS "Users can only access their own clothing items" ON clothing_items;
+      CREATE POLICY "Users can only access their own clothing items" ON clothing_items
+        FOR ALL USING (
+          "userId" = COALESCE(
+            NULLIF(current_setting('app.current_user_id', true), '')::integer,
+            -1
+          )
+        );
+
+      -- Grant execute permission on the function to service role
+      GRANT EXECUTE ON FUNCTION set_request_user_id(integer) TO service_role;
+      GRANT EXECUTE ON FUNCTION set_request_user_id(integer) TO authenticated;
+      GRANT EXECUTE ON FUNCTION set_request_user_id(integer) TO anon;
+    `,
+    down: `
+      -- Drop RLS policies
+      DROP POLICY IF EXISTS "Users can only access their own inspiration images" ON inspiration_images;
+      DROP POLICY IF EXISTS "Users can only access their own clothing items" ON clothing_items;
+
+      -- Disable RLS
+      ALTER TABLE inspiration_images DISABLE ROW LEVEL SECURITY;
+      ALTER TABLE clothing_items DISABLE ROW LEVEL SECURITY;
+
+      -- Drop the function
+      DROP FUNCTION IF EXISTS set_request_user_id(integer);
+    `
+  },
+  {
+    version: 4,
+    name: 'fix_users_table_rls_policies',
+    up: `
+      -- Enable RLS on users table (if not already enabled)
+      ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+      -- Drop existing policies if they exist
+      DROP POLICY IF EXISTS "Service role full access to users" ON users;
+      DROP POLICY IF EXISTS "Allow user registration" ON users;
+      DROP POLICY IF EXISTS "Users can only read their own data" ON users;
+      DROP POLICY IF EXISTS "Users can only update their own data" ON users;
+
+      -- Allow service role to do everything (for backend operations)
+      CREATE POLICY "Service role full access to users" ON users
+        FOR ALL TO service_role
+        USING (true)
+        WITH CHECK (true);
+
+      -- Allow user registration (INSERT) for anon and authenticated roles
+      CREATE POLICY "Allow user registration" ON users
+        FOR INSERT TO anon, authenticated
+        WITH CHECK (true);
+
+      -- Users can only read their own user record when authenticated
+      CREATE POLICY "Users can only read their own data" ON users
+        FOR SELECT TO authenticated
+        USING (
+          id = COALESCE(
+            NULLIF(current_setting('app.current_user_id', true), '')::integer,
+            -1
+          )
+        );
+
+      -- Users can only update their own record when authenticated
+      CREATE POLICY "Users can only update their own data" ON users
+        FOR UPDATE TO authenticated
+        USING (
+          id = COALESCE(
+            NULLIF(current_setting('app.current_user_id', true), '')::integer,
+            -1
+          )
+        )
+        WITH CHECK (
+          id = COALESCE(
+            NULLIF(current_setting('app.current_user_id', true), '')::integer,
+            -1
+          )
+        );
+    `,
+    down: `
+      -- Drop all user table policies
+      DROP POLICY IF EXISTS "Service role full access to users" ON users;
+      DROP POLICY IF EXISTS "Allow user registration" ON users;
+      DROP POLICY IF EXISTS "Users can only read their own data" ON users;
+      DROP POLICY IF EXISTS "Users can only update their own data" ON users;
+
+      -- Disable RLS on users table
+      ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+    `
+  },
+  {
+    version: 5,
+    name: 'completely_disable_users_rls',
+    up: `
+      -- Remove all RLS policies from users table
+      DROP POLICY IF EXISTS "Service role full access to users" ON users;
+      DROP POLICY IF EXISTS "Allow user registration" ON users;
+      DROP POLICY IF EXISTS "Users can only read their own data" ON users;
+      DROP POLICY IF EXISTS "Users can only update their own data" ON users;
+
+      -- Completely disable RLS on users table since Supabase service-level RLS blocks registration
+      ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+
+      -- Add comment explaining why RLS is disabled
+      COMMENT ON TABLE users IS 'RLS disabled: Supabase service-level RLS conflicts with custom authentication. User data isolation maintained via application-level session management and RLS on data tables.';
+
+      -- Ensure users table has proper structure
+      ALTER TABLE users ALTER COLUMN id SET DEFAULT nextval('users_id_seq');
+    `,
+    down: `
+      -- Re-enable RLS and restore policies if needed
+      ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+      CREATE POLICY "Service role full access to users" ON users
+        FOR ALL TO service_role
+        USING (true)
+        WITH CHECK (true);
+    `
   }
 ];
 

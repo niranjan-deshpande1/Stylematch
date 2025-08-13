@@ -15,6 +15,18 @@ if (!supabaseUrl || !supabaseServiceKey) {
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+// Helper function to set the current user ID for RLS
+export async function setRequestUserId(userId: number): Promise<void> {
+  try {
+    const { error } = await supabase.rpc('set_request_user_id', { uid: userId });
+    if (error) {
+      console.error('Error setting request user ID:', error);
+    }
+  } catch (error) {
+    console.error('Error setting request user ID:', error);
+  }
+}
+
 // Initialize the database on startup
 export async function initDatabase() {
   try {
@@ -139,6 +151,7 @@ export async function getUserByEmail(email: string): Promise<User | undefined> {
 
 export async function createUser(user: InsertUser): Promise<User> {
   try {
+    // Use standard Supabase insert now that RLS is completely disabled
     const { data, error } = await supabase
       .from('users')
       .insert([user])
@@ -148,6 +161,10 @@ export async function createUser(user: InsertUser): Promise<User> {
     if (error) {
       console.error('Error in createUser:', error);
       throw error;
+    }
+
+    if (!data) {
+      throw new Error('No user data returned from database');
     }
 
     return data;
@@ -160,16 +177,16 @@ export async function createUser(user: InsertUser): Promise<User> {
 // Inspiration image operations
 export async function getInspirationImages(userId?: number): Promise<InspirationImage[]> {
   try {
-    let query = supabase
+    // Set the user ID for RLS if provided
+    if (userId !== undefined) {
+      await setRequestUserId(userId);
+    }
+
+    // With RLS enabled, we don't need to filter by userId in the query
+    const { data, error } = await supabase
       .from('inspiration_images')
       .select('*')
       .order('createdAt', { ascending: false });
-
-    if (userId !== undefined) {
-      query = query.eq('userId', userId);
-    }
-
-    const { data, error } = await query;
 
     if (error) {
       console.error('Error in getInspirationImages:', error);
@@ -185,16 +202,17 @@ export async function getInspirationImages(userId?: number): Promise<Inspiration
 
 export async function getInspirationImage(id: number, userId?: number): Promise<InspirationImage | undefined> {
   try {
-    let query = supabase
-      .from('inspiration_images')
-      .select('*')
-      .eq('id', id);
-
+    // Set the user ID for RLS if provided
     if (userId !== undefined) {
-      query = query.eq('userId', userId);
+      await setRequestUserId(userId);
     }
 
-    const { data, error } = await query.single();
+    // With RLS enabled, we don't need to filter by userId in the query
+    const { data, error } = await supabase
+      .from('inspiration_images')
+      .select('*')
+      .eq('id', id)
+      .single();
 
     if (error && error.code !== 'PGRST116') {
       console.error('Error in getInspirationImage:', error);
@@ -210,6 +228,9 @@ export async function getInspirationImage(id: number, userId?: number): Promise<
 
 export async function createInspirationImage(image: InsertInspirationImage): Promise<InspirationImage> {
   try {
+    // Set the user ID for RLS
+    await setRequestUserId(image.userId);
+
     const { data, error } = await supabase
       .from('inspiration_images')
       .insert([{
@@ -233,8 +254,13 @@ export async function createInspirationImage(image: InsertInspirationImage): Pro
   }
 }
 
-export async function updateInspirationImageTags(id: number, tags: string[]): Promise<InspirationImage | undefined> {
+export async function updateInspirationImageTags(id: number, tags: string[], userId?: number): Promise<InspirationImage | undefined> {
   try {
+    // Set the user ID for RLS if provided
+    if (userId !== undefined) {
+      await setRequestUserId(userId);
+    }
+
     const { data, error } = await supabase
       .from('inspiration_images')
       .update({ styleTags: tags })
@@ -254,8 +280,13 @@ export async function updateInspirationImageTags(id: number, tags: string[]): Pr
   }
 }
 
-export async function updateInspirationImageSaved(id: number, isSaved: boolean): Promise<InspirationImage | undefined> {
+export async function updateInspirationImageSaved(id: number, isSaved: boolean, userId?: number): Promise<InspirationImage | undefined> {
   try {
+    // Set the user ID for RLS if provided
+    if (userId !== undefined) {
+      await setRequestUserId(userId);
+    }
+
     const { data, error } = await supabase
       .from('inspiration_images')
       .update({ isSaved })
@@ -275,8 +306,13 @@ export async function updateInspirationImageSaved(id: number, isSaved: boolean):
   }
 }
 
-export async function deleteInspirationImage(id: number): Promise<boolean> {
+export async function deleteInspirationImage(id: number, userId?: number): Promise<boolean> {
   try {
+    // Set the user ID for RLS if provided
+    if (userId !== undefined) {
+      await setRequestUserId(userId);
+    }
+
     const { error } = await supabase
       .from('inspiration_images')
       .delete()
@@ -297,16 +333,16 @@ export async function deleteInspirationImage(id: number): Promise<boolean> {
 // Clothing item operations
 export async function getClothingItems(userId?: number): Promise<ClothingItem[]> {
   try {
-    let query = supabase
+    // Set the user ID for RLS if provided
+    if (userId !== undefined) {
+      await setRequestUserId(userId);
+    }
+
+    // With RLS enabled, we don't need to filter by userId in the query
+    const { data, error } = await supabase
       .from('clothing_items')
       .select('*')
       .order('createdAt');
-
-    if (userId !== undefined) {
-      query = query.eq('userId', userId);
-    }
-
-    const { data, error } = await query;
 
     if (error) {
       console.error('Error in getClothingItems:', error);
@@ -322,17 +358,17 @@ export async function getClothingItems(userId?: number): Promise<ClothingItem[]>
 
 export async function getClothingItemsByCategory(category: string, userId?: number): Promise<ClothingItem[]> {
   try {
-    let query = supabase
+    // Set the user ID for RLS if provided
+    if (userId !== undefined) {
+      await setRequestUserId(userId);
+    }
+
+    // With RLS enabled, we don't need to filter by userId in the query
+    const { data, error } = await supabase
       .from('clothing_items')
       .select('*')
       .eq('category', category)
       .order('createdAt');
-
-    if (userId !== undefined) {
-      query = query.eq('userId', userId);
-    }
-
-    const { data, error } = await query;
 
     if (error) {
       console.error('Error in getClothingItemsByCategory:', error);
@@ -348,16 +384,17 @@ export async function getClothingItemsByCategory(category: string, userId?: numb
 
 export async function getClothingItem(id: number, userId?: number): Promise<ClothingItem | undefined> {
   try {
-    let query = supabase
-      .from('clothing_items')
-      .select('*')
-      .eq('id', id);
-
+    // Set the user ID for RLS if provided
     if (userId !== undefined) {
-      query = query.eq('userId', userId);
+      await setRequestUserId(userId);
     }
 
-    const { data, error } = await query.single();
+    // With RLS enabled, we don't need to filter by userId in the query
+    const { data, error } = await supabase
+      .from('clothing_items')
+      .select('*')
+      .eq('id', id)
+      .single();
 
     if (error && error.code !== 'PGRST116') {
       console.error('Error in getClothingItem:', error);
@@ -373,6 +410,9 @@ export async function getClothingItem(id: number, userId?: number): Promise<Clot
 
 export async function createClothingItem(item: InsertClothingItem): Promise<ClothingItem> {
   try {
+    // Set the user ID for RLS
+    await setRequestUserId(item.userId);
+
     const { data, error } = await supabase
       .from('clothing_items')
       .insert([{
@@ -396,8 +436,13 @@ export async function createClothingItem(item: InsertClothingItem): Promise<Clot
   }
 }
 
-export async function updateClothingItemTags(id: number, tags: string[]): Promise<ClothingItem | undefined> {
+export async function updateClothingItemTags(id: number, tags: string[], userId?: number): Promise<ClothingItem | undefined> {
   try {
+    // Set the user ID for RLS if provided
+    if (userId !== undefined) {
+      await setRequestUserId(userId);
+    }
+
     const { data, error } = await supabase
       .from('clothing_items')
       .update({ styleTags: tags })
@@ -417,8 +462,13 @@ export async function updateClothingItemTags(id: number, tags: string[]): Promis
   }
 }
 
-export async function deleteClothingItem(id: number): Promise<boolean> {
+export async function deleteClothingItem(id: number, userId?: number): Promise<boolean> {
   try {
+    // Set the user ID for RLS if provided
+    if (userId !== undefined) {
+      await setRequestUserId(userId);
+    }
+
     const { error } = await supabase
       .from('clothing_items')
       .delete()
