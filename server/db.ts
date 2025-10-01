@@ -231,6 +231,25 @@ export async function createInspirationImage(image: InsertInspirationImage): Pro
     // Set the user ID for RLS
     await setRequestUserId(image.userId);
 
+    // For guest users (negative IDs), use the special insert function
+    if (image.userId < 0) {
+      const { data, error } = await supabase.rpc('insert_inspiration_image_guest', {
+        image_url: image.imageUrl,
+        user_id: image.userId,
+        style_tags: Array.isArray(image.styleTags) ? image.styleTags : [],
+        is_saved: image.isSaved !== undefined ? image.isSaved : false
+      });
+
+      if (error) {
+        console.error('Error in createInspirationImage (guest):', error);
+        throw error;
+      }
+
+      // The RPC function returns an array, get the first element
+      return Array.isArray(data) && data.length > 0 ? data[0] : data;
+    }
+
+    // For authenticated users, use normal insert
     const { data, error } = await supabase
       .from('inspiration_images')
       .insert([{
@@ -413,6 +432,25 @@ export async function createClothingItem(item: InsertClothingItem): Promise<Clot
     // Set the user ID for RLS
     await setRequestUserId(item.userId);
 
+    // For guest users (negative IDs), use the special insert function
+    if (item.userId < 0) {
+      const { data, error } = await supabase.rpc('insert_clothing_item_guest', {
+        image_url: item.imageUrl,
+        category_name: item.category || "other",
+        user_id: item.userId,
+        style_tags: Array.isArray(item.styleTags) ? item.styleTags : []
+      });
+
+      if (error) {
+        console.error('Error in createClothingItem (guest):', error);
+        throw error;
+      }
+
+      // The RPC function returns an array, get the first element
+      return Array.isArray(data) && data.length > 0 ? data[0] : data;
+    }
+
+    // For authenticated users, use normal insert
     const { data, error } = await supabase
       .from('clothing_items')
       .insert([{
