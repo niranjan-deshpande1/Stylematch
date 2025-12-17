@@ -1,7 +1,8 @@
-import { pgTable, text, serial, integer, jsonb, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, jsonb, timestamp, boolean, varchar, json } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Users table
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
@@ -21,7 +22,7 @@ export type User = typeof users.$inferSelect;
 // Email signups table for coming soon page
 export const emailSignups = pgTable("email_signups", {
   id: serial("id").primaryKey(),
-  email: text("email").notNull(),
+  email: varchar("email", { length: 255 }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -32,14 +33,21 @@ export const insertEmailSignupSchema = createInsertSchema(emailSignups).pick({
 export type InsertEmailSignup = z.infer<typeof insertEmailSignupSchema>;
 export type EmailSignup = typeof emailSignups.$inferSelect;
 
+// Waitlist signups (separate table that already exists)
+export const waitlistSignups = pgTable("waitlist_signups", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Style tags are stored as a simple array of strings
 export const inspirationImages = pgTable("inspiration_images", {
   id: serial("id").primaryKey(),
-  imageUrl: text("image_url").notNull(),
-  styleTags: jsonb("style_tags").$type<string[]>().notNull().default([]),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  userId: integer("user_id").notNull(),
-  isSaved: boolean("is_saved").notNull().default(false),
+  imageUrl: text("imageUrl").notNull(),
+  styleTags: text("styleTags").array(),
+  createdAt: timestamp("createdAt").defaultNow(),
+  userId: integer("userId").notNull(),
+  isSaved: boolean("isSaved").default(false),
 });
 
 export const insertInspirationImageSchema = createInsertSchema(inspirationImages).pick({
@@ -49,6 +57,7 @@ export const insertInspirationImageSchema = createInsertSchema(inspirationImages
   styleTags: true,
 });
 
+// Clothing categories
 export const clothingCategories = [
   "tops",
   "bottoms",
@@ -62,11 +71,11 @@ export const clothingCategories = [
 
 export const clothingItems = pgTable("clothing_items", {
   id: serial("id").primaryKey(),
-  imageUrl: text("image_url").notNull(),
-  styleTags: jsonb("style_tags").$type<string[]>().notNull().default([]),
+  imageUrl: text("imageUrl").notNull(),
+  styleTags: text("styleTags").array(),
   category: text("category").notNull().default("other"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  userId: integer("user_id").notNull(),
+  createdAt: timestamp("createdAt").defaultNow(),
+  userId: integer("userId").notNull(),
 });
 
 export const insertClothingItemSchema = createInsertSchema(clothingItems).pick({
@@ -74,6 +83,13 @@ export const insertClothingItemSchema = createInsertSchema(clothingItems).pick({
   category: true,
   userId: true,
   styleTags: true,
+});
+
+// Session table for connect-pg-simple
+export const sessions = pgTable("session", {
+  sid: varchar("sid", { length: 255 }).primaryKey(),
+  sess: json("sess").notNull(),
+  expire: timestamp("expire").notNull(),
 });
 
 export type InspirationImage = typeof inspirationImages.$inferSelect;

@@ -2,9 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupAuth } from "./auth";
-import * as db from "./db";
-import { initializeMigrations } from "./migrations";
-import { scheduleAutomaticBackups } from "./backup-restore";
+import { testConnection } from "./db";
 
 const app = express();
 
@@ -63,6 +61,12 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Test database connection
+  const connected = await testConnection();
+  if (!connected) {
+    console.error('WARNING: Database connection failed. Some features may not work.');
+  }
+
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -76,14 +80,13 @@ app.use((req, res, next) => {
       console.error(`Error occurred after headers sent: ${message}`);
     }
 
-    // Log error but don't rethrow it to prevent terminating the server
     console.error(err);
   });
 
   // Serve uploaded images statically - must be before catch-all routes
   app.use('/uploads', express.static('uploads'));
 
-  // vite dev server in development, built files in production
+  // Setup vite in development, otherwise serve static files
   if (app.get("env") === "development") {
     await setupVite(app, server);
   } else {
@@ -98,18 +101,5 @@ app.use((req, res, next) => {
     reusePort: true,
   }, async () => {
     log(`serving on port ${port}`);
-
-    // Initialize database migrations and backups
-    try {
-      await initializeMigrations();
-      log(`Database migrations completed successfully`);
-
-      // Schedule automatic backups (every 6 hours)
-      await scheduleAutomaticBackups();
-      log(`Automatic backup system initialized`);
-    } catch (error) {
-      console.error('Failed to initialize database migrations or backups:', error);
-      // Don't crash the server, just log the error
-    }
   });
 })();

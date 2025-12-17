@@ -1,324 +1,214 @@
-import { createClient } from '@supabase/supabase-js';
-import { User, InsertUser, InspirationImage, InsertInspirationImage, ClothingItem, InsertClothingItem } from '@shared/schema';
+import pg from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { eq, desc, and } from 'drizzle-orm';
+import * as schema from '@shared/schema';
 
-// Initialize Supabase client
+const { Pool } = pg;
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// Initialize PostgreSQL connection pool using DATABASE_URL
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
 
-if (!supabaseUrl || !supabaseServiceKey) {
-  console.error('Missing environment variables:');
-  console.error('SUPABASE_URL:', supabaseUrl ? 'SET' : 'MISSING');
-  console.error('SUPABASE_SERVICE_ROLE_KEY:', supabaseServiceKey ? 'SET' : 'MISSING');
-  throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY environment variables are required');
-}
+// Create Drizzle ORM instance
+export const db = drizzle(pool, { schema });
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-// Helper function to set the current user ID for RLS
-export async function setRequestUserId(userId: number): Promise<void> {
+// Test database connection
+export async function testConnection(): Promise<boolean> {
   try {
-    const { error } = await supabase.rpc('set_request_user_id', { uid: userId });
-    if (error) {
-      console.error('Error setting request user ID:', error);
-    }
-  } catch (error) {
-    console.error('Error setting request user ID:', error);
+    const result = await pool.query('SELECT 1');
+    return true;
+  } catch (err) {
+    console.error('Database connection error:', err);
+    return false;
   }
 }
 
-// Initialize the database on startup
-export async function initDatabase() {
+// ==================== USER OPERATIONS ====================
+
+export async function getUser(id: number): Promise<schema.User | undefined> {
   try {
-    // Check if tables already exist
-    const { data: tables, error } = await supabase
-      .from('information_schema.tables')
-      .select('table_name')
-      .eq('table_schema', 'public')
-      .in('table_name', ['users', 'inspiration_images', 'clothing_items']);
-
-    if (error) {
-      console.error('Error checking tables:', error);
-    }
-
-    if (tables && tables.length >= 3) {
-      return;
-    }
-
-    // Create tables using SQL functions if they don't exist
-    const createTablesSQL = `
-      -- Create users table
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        username TEXT NOT NULL UNIQUE,
-        email TEXT NOT NULL UNIQUE,
-        password TEXT NOT NULL
-      );
-
-      -- Create inspiration_images table
-      CREATE TABLE IF NOT EXISTS inspiration_images (
-        id SERIAL PRIMARY KEY,
-        "imageUrl" TEXT NOT NULL,
-        "userId" INTEGER NOT NULL REFERENCES users(id),
-        "styleTags" TEXT[] DEFAULT '{}',
-        "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        "isSaved" BOOLEAN DEFAULT FALSE
-      );
-
-      -- Create clothing_items table
-      CREATE TABLE IF NOT EXISTS clothing_items (
-        id SERIAL PRIMARY KEY,
-        "imageUrl" TEXT NOT NULL,
-        category TEXT NOT NULL,
-        "userId" INTEGER NOT NULL REFERENCES users(id),
-        "styleTags" TEXT[] DEFAULT '{}',
-        "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `;
-
-    const { error: createError } = await supabase.rpc('exec_sql', { sql: createTablesSQL });
-
-    if (createError) {
-      console.error('Error creating tables:', createError);
-      throw createError;
-    }
-  } catch (error) {
-    console.error('Error initializing database:', error);
-    throw error;
-  }
-}
-
-// User operations
-export async function getUser(id: number): Promise<User | undefined> {
-  try {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      console.error('Error in getUser:', error);
-      return undefined;
-    }
-
-    return data || undefined;
+    const [user] = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.id, id))
+      .limit(1);
+    return user;
   } catch (error) {
     console.error('Error in getUser:', error);
     return undefined;
   }
 }
 
-export async function getUserByUsername(username: string): Promise<User | undefined> {
+export async function getUserByUsername(username: string): Promise<schema.User | undefined> {
   try {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('username', username)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      console.error('Error in getUserByUsername:', error);
-      return undefined;
-    }
-
-    return data || undefined;
+    const [user] = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.username, username))
+      .limit(1);
+    return user;
   } catch (error) {
     console.error('Error in getUserByUsername:', error);
     return undefined;
   }
 }
 
-export async function getUserByEmail(email: string): Promise<User | undefined> {
+export async function getUserByEmail(email: string): Promise<schema.User | undefined> {
   try {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      console.error('Error in getUserByEmail:', error);
-      return undefined;
-    }
-
-    return data || undefined;
+    const [user] = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, email))
+      .limit(1);
+    return user;
   } catch (error) {
     console.error('Error in getUserByEmail:', error);
     return undefined;
   }
 }
 
-export async function createUser(user: InsertUser): Promise<User> {
+export async function createUser(user: schema.InsertUser): Promise<schema.User> {
   try {
-    // Use standard Supabase insert now that RLS is completely disabled
-    const { data, error } = await supabase
-      .from('users')
-      .insert([user])
-      .select()
-      .single();
+    const [newUser] = await db
+      .insert(schema.users)
+      .values(user)
+      .returning();
 
-    if (error) {
-      console.error('Error in createUser:', error);
-      throw error;
-    }
-
-    if (!data) {
-      throw new Error('No user data returned from database');
-    }
-
-    return data;
+    return newUser;
   } catch (error) {
     console.error('Error in createUser:', error);
     throw error;
   }
 }
 
-// Inspiration image operations
-export async function getInspirationImages(userId?: number): Promise<InspirationImage[]> {
+export async function getAllUsers(): Promise<schema.User[]> {
   try {
-    // Set the user ID for RLS if provided
+    return await db.select().from(schema.users);
+  } catch (error) {
+    console.error('Error in getAllUsers:', error);
+    return [];
+  }
+}
+
+export async function getUserCount(): Promise<number> {
+  try {
+    const result = await pool.query('SELECT COUNT(*) FROM users');
+    return parseInt(result.rows[0].count, 10);
+  } catch (error) {
+    console.error('Error in getUserCount:', error);
+    return 0;
+  }
+}
+
+// ==================== INSPIRATION IMAGE OPERATIONS ====================
+
+export async function getInspirationImages(userId?: number): Promise<schema.InspirationImage[]> {
+  try {
     if (userId !== undefined) {
-      await setRequestUserId(userId);
+      return await db
+        .select()
+        .from(schema.inspirationImages)
+        .where(eq(schema.inspirationImages.userId, userId))
+        .orderBy(desc(schema.inspirationImages.createdAt));
     }
-
-    // With RLS enabled, we don't need to filter by userId in the query
-    const { data, error } = await supabase
-      .from('inspiration_images')
-      .select('*')
-      .order('createdAt', { ascending: false });
-
-    if (error) {
-      console.error('Error in getInspirationImages:', error);
-      return [];
-    }
-
-    return data || [];
+    return await db
+      .select()
+      .from(schema.inspirationImages)
+      .orderBy(desc(schema.inspirationImages.createdAt));
   } catch (error) {
     console.error('Error in getInspirationImages:', error);
     return [];
   }
 }
 
-export async function getInspirationImage(id: number, userId?: number): Promise<InspirationImage | undefined> {
+export async function getInspirationImage(id: number, userId?: number): Promise<schema.InspirationImage | undefined> {
   try {
-    // Set the user ID for RLS if provided
     if (userId !== undefined) {
-      await setRequestUserId(userId);
+      const [image] = await db
+        .select()
+        .from(schema.inspirationImages)
+        .where(and(
+          eq(schema.inspirationImages.id, id),
+          eq(schema.inspirationImages.userId, userId)
+        ))
+        .limit(1);
+      return image;
     }
-
-    // With RLS enabled, we don't need to filter by userId in the query
-    const { data, error } = await supabase
-      .from('inspiration_images')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      console.error('Error in getInspirationImage:', error);
-      return undefined;
-    }
-
-    return data || undefined;
+    const [image] = await db
+      .select()
+      .from(schema.inspirationImages)
+      .where(eq(schema.inspirationImages.id, id))
+      .limit(1);
+    return image;
   } catch (error) {
     console.error('Error in getInspirationImage:', error);
     return undefined;
   }
 }
 
-export async function createInspirationImage(image: InsertInspirationImage): Promise<InspirationImage> {
+export async function createInspirationImage(image: schema.InsertInspirationImage): Promise<schema.InspirationImage> {
   try {
-    // Set the user ID for RLS
-    await setRequestUserId(image.userId);
-
-    // For guest users (negative IDs), use the special insert function
-    if (image.userId < 0) {
-      const { data, error } = await supabase.rpc('insert_inspiration_image_guest', {
-        image_url: image.imageUrl,
-        user_id: image.userId,
-        style_tags: Array.isArray(image.styleTags) ? image.styleTags : [],
-        is_saved: image.isSaved !== undefined ? image.isSaved : false
-      });
-
-      if (error) {
-        console.error('Error in createInspirationImage (guest):', error);
-        throw error;
-      }
-
-      // The RPC function returns an array, get the first element
-      return Array.isArray(data) && data.length > 0 ? data[0] : data;
-    }
-
-    // For authenticated users, use normal insert
-    const { data, error } = await supabase
-      .from('inspiration_images')
-      .insert([{
+    const [newImage] = await db
+      .insert(schema.inspirationImages)
+      .values({
         imageUrl: image.imageUrl,
         userId: image.userId,
-        styleTags: Array.isArray(image.styleTags) ? image.styleTags : [],
-        isSaved: image.isSaved !== undefined ? image.isSaved : false
-      }])
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error in createInspirationImage:', error);
-      throw error;
-    }
-
-    return data;
+        styleTags: image.styleTags || [],
+        isSaved: image.isSaved ?? false,
+      })
+      .returning();
+    return newImage;
   } catch (error) {
     console.error('Error in createInspirationImage:', error);
     throw error;
   }
 }
 
-export async function updateInspirationImageTags(id: number, tags: string[], userId?: number): Promise<InspirationImage | undefined> {
+export async function updateInspirationImageTags(id: number, tags: string[], userId?: number): Promise<schema.InspirationImage | undefined> {
   try {
-    // Set the user ID for RLS if provided
     if (userId !== undefined) {
-      await setRequestUserId(userId);
+      const [updated] = await db
+        .update(schema.inspirationImages)
+        .set({ styleTags: tags })
+        .where(and(
+          eq(schema.inspirationImages.id, id),
+          eq(schema.inspirationImages.userId, userId)
+        ))
+        .returning();
+      return updated;
     }
-
-    const { data, error } = await supabase
-      .from('inspiration_images')
-      .update({ styleTags: tags })
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error in updateInspirationImageTags:', error);
-      return undefined;
-    }
-
-    return data || undefined;
+    const [updated] = await db
+      .update(schema.inspirationImages)
+      .set({ styleTags: tags })
+      .where(eq(schema.inspirationImages.id, id))
+      .returning();
+    return updated;
   } catch (error) {
     console.error('Error in updateInspirationImageTags:', error);
     return undefined;
   }
 }
 
-export async function updateInspirationImageSaved(id: number, isSaved: boolean, userId?: number): Promise<InspirationImage | undefined> {
+export async function updateInspirationImageSaved(id: number, isSaved: boolean, userId?: number): Promise<schema.InspirationImage | undefined> {
   try {
-    // Set the user ID for RLS if provided
     if (userId !== undefined) {
-      await setRequestUserId(userId);
+      const [updated] = await db
+        .update(schema.inspirationImages)
+        .set({ isSaved })
+        .where(and(
+          eq(schema.inspirationImages.id, id),
+          eq(schema.inspirationImages.userId, userId)
+        ))
+        .returning();
+      return updated;
     }
-
-    const { data, error } = await supabase
-      .from('inspiration_images')
-      .update({ isSaved })
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error in updateInspirationImageSaved:', error);
-      return undefined;
-    }
-
-    return data || undefined;
+    const [updated] = await db
+      .update(schema.inspirationImages)
+      .set({ isSaved })
+      .where(eq(schema.inspirationImages.id, id))
+      .returning();
+    return updated;
   } catch (error) {
     console.error('Error in updateInspirationImageSaved:', error);
     return undefined;
@@ -327,21 +217,18 @@ export async function updateInspirationImageSaved(id: number, isSaved: boolean, 
 
 export async function deleteInspirationImage(id: number, userId?: number): Promise<boolean> {
   try {
-    // Set the user ID for RLS if provided
     if (userId !== undefined) {
-      await setRequestUserId(userId);
+      await db
+        .delete(schema.inspirationImages)
+        .where(and(
+          eq(schema.inspirationImages.id, id),
+          eq(schema.inspirationImages.userId, userId)
+        ));
+    } else {
+      await db
+        .delete(schema.inspirationImages)
+        .where(eq(schema.inspirationImages.id, id));
     }
-
-    const { error } = await supabase
-      .from('inspiration_images')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      console.error('Error in deleteInspirationImage:', error);
-      return false;
-    }
-
     return true;
   } catch (error) {
     console.error('Error in deleteInspirationImage:', error);
@@ -349,151 +236,112 @@ export async function deleteInspirationImage(id: number, userId?: number): Promi
   }
 }
 
-// Clothing item operations
-export async function getClothingItems(userId?: number): Promise<ClothingItem[]> {
+// ==================== CLOTHING ITEM OPERATIONS ====================
+
+export async function getClothingItems(userId?: number): Promise<schema.ClothingItem[]> {
   try {
-    // Set the user ID for RLS if provided
     if (userId !== undefined) {
-      await setRequestUserId(userId);
+      return await db
+        .select()
+        .from(schema.clothingItems)
+        .where(eq(schema.clothingItems.userId, userId))
+        .orderBy(desc(schema.clothingItems.createdAt));
     }
-
-    // With RLS enabled, we don't need to filter by userId in the query
-    const { data, error } = await supabase
-      .from('clothing_items')
-      .select('*')
-      .order('createdAt');
-
-    if (error) {
-      console.error('Error in getClothingItems:', error);
-      return [];
-    }
-
-    return data || [];
+    return await db
+      .select()
+      .from(schema.clothingItems)
+      .orderBy(desc(schema.clothingItems.createdAt));
   } catch (error) {
     console.error('Error in getClothingItems:', error);
     return [];
   }
 }
 
-export async function getClothingItemsByCategory(category: string, userId?: number): Promise<ClothingItem[]> {
+export async function getClothingItemsByCategory(category: string, userId?: number): Promise<schema.ClothingItem[]> {
   try {
-    // Set the user ID for RLS if provided
     if (userId !== undefined) {
-      await setRequestUserId(userId);
+      return await db
+        .select()
+        .from(schema.clothingItems)
+        .where(and(
+          eq(schema.clothingItems.category, category),
+          eq(schema.clothingItems.userId, userId)
+        ))
+        .orderBy(desc(schema.clothingItems.createdAt));
     }
-
-    // With RLS enabled, we don't need to filter by userId in the query
-    const { data, error } = await supabase
-      .from('clothing_items')
-      .select('*')
-      .eq('category', category)
-      .order('createdAt');
-
-    if (error) {
-      console.error('Error in getClothingItemsByCategory:', error);
-      return [];
-    }
-
-    return data || [];
+    return await db
+      .select()
+      .from(schema.clothingItems)
+      .where(eq(schema.clothingItems.category, category))
+      .orderBy(desc(schema.clothingItems.createdAt));
   } catch (error) {
     console.error('Error in getClothingItemsByCategory:', error);
     return [];
   }
 }
 
-export async function getClothingItem(id: number, userId?: number): Promise<ClothingItem | undefined> {
+export async function getClothingItem(id: number, userId?: number): Promise<schema.ClothingItem | undefined> {
   try {
-    // Set the user ID for RLS if provided
     if (userId !== undefined) {
-      await setRequestUserId(userId);
+      const [item] = await db
+        .select()
+        .from(schema.clothingItems)
+        .where(and(
+          eq(schema.clothingItems.id, id),
+          eq(schema.clothingItems.userId, userId)
+        ))
+        .limit(1);
+      return item;
     }
-
-    // With RLS enabled, we don't need to filter by userId in the query
-    const { data, error } = await supabase
-      .from('clothing_items')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      console.error('Error in getClothingItem:', error);
-      return undefined;
-    }
-
-    return data || undefined;
+    const [item] = await db
+      .select()
+      .from(schema.clothingItems)
+      .where(eq(schema.clothingItems.id, id))
+      .limit(1);
+    return item;
   } catch (error) {
     console.error('Error in getClothingItem:', error);
     return undefined;
   }
 }
 
-export async function createClothingItem(item: InsertClothingItem): Promise<ClothingItem> {
+export async function createClothingItem(item: schema.InsertClothingItem): Promise<schema.ClothingItem> {
   try {
-    // Set the user ID for RLS
-    await setRequestUserId(item.userId);
-
-    // For guest users (negative IDs), use the special insert function
-    if (item.userId < 0) {
-      const { data, error } = await supabase.rpc('insert_clothing_item_guest', {
-        image_url: item.imageUrl,
-        category_name: item.category || "other",
-        user_id: item.userId,
-        style_tags: Array.isArray(item.styleTags) ? item.styleTags : []
-      });
-
-      if (error) {
-        console.error('Error in createClothingItem (guest):', error);
-        throw error;
-      }
-
-      // The RPC function returns an array, get the first element
-      return Array.isArray(data) && data.length > 0 ? data[0] : data;
-    }
-
-    // For authenticated users, use normal insert
-    const { data, error } = await supabase
-      .from('clothing_items')
-      .insert([{
+    const [newItem] = await db
+      .insert(schema.clothingItems)
+      .values({
         imageUrl: item.imageUrl,
-        category: item.category || "other",
+        category: item.category || 'other',
         userId: item.userId,
-        styleTags: Array.isArray(item.styleTags) ? item.styleTags : []
-      }])
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error in createClothingItem:', error);
-      throw error;
-    }
-
-    return data;
+        styleTags: item.styleTags || [],
+      })
+      .returning();
+    return newItem;
   } catch (error) {
     console.error('Error in createClothingItem:', error);
     throw error;
   }
 }
 
-export async function updateClothingItemTags(id: number, tags: string[], userId?: number): Promise<ClothingItem | undefined> {
+export async function updateClothingItemTags(id: number, tags: string[], userId?: number): Promise<schema.ClothingItem | undefined> {
   try {
-    // Set the user ID for RLS if provided
     if (userId !== undefined) {
-      await setRequestUserId(userId);
+      const [updated] = await db
+        .update(schema.clothingItems)
+        .set({ styleTags: tags })
+        .where(and(
+          eq(schema.clothingItems.id, id),
+          eq(schema.clothingItems.userId, userId)
+        ))
+        .returning();
+      return updated;
     }
-
-    const { data, error } = await supabase
-      .from('clothing_items')
-      .update({ styleTags: tags })
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error in updateClothingItemTags:', error);
-      return undefined;
-    }
-
-    return data || undefined;
+    const [updated] = await db
+      .update(schema.clothingItems)
+      .set({ styleTags: tags })
+      .where(eq(schema.clothingItems.id, id))
+      .returning();
+    return updated;
   } catch (error) {
     console.error('Error in updateClothingItemTags:', error);
     return undefined;
@@ -502,21 +350,18 @@ export async function updateClothingItemTags(id: number, tags: string[], userId?
 
 export async function deleteClothingItem(id: number, userId?: number): Promise<boolean> {
   try {
-    // Set the user ID for RLS if provided
     if (userId !== undefined) {
-      await setRequestUserId(userId);
+      await db
+        .delete(schema.clothingItems)
+        .where(and(
+          eq(schema.clothingItems.id, id),
+          eq(schema.clothingItems.userId, userId)
+        ));
+    } else {
+      await db
+        .delete(schema.clothingItems)
+        .where(eq(schema.clothingItems.id, id));
     }
-
-    const { error } = await supabase
-      .from('clothing_items')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      console.error('Error in deleteClothingItem:', error);
-      return false;
-    }
-
     return true;
   } catch (error) {
     console.error('Error in deleteClothingItem:', error);
@@ -524,62 +369,58 @@ export async function deleteClothingItem(id: number, userId?: number): Promise<b
   }
 }
 
-// Email signup operations
-export async function createEmailSignup(email: string): Promise<any> {
+// ==================== EMAIL SIGNUP OPERATIONS ====================
+
+export async function createEmailSignup(email: string): Promise<schema.EmailSignup> {
   try {
-    const { data, error } = await supabase
-      .from('waitlist_signups')
-      .insert([{ email }])
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error in createEmailSignup:', error);
-      throw error;
-    }
-
-    return data;
+    const [signup] = await db
+      .insert(schema.emailSignups)
+      .values({ email })
+      .returning();
+    return signup;
   } catch (error) {
     console.error('Error in createEmailSignup:', error);
     throw error;
   }
 }
 
-export async function getEmailSignups(): Promise<any[]> {
+export async function getEmailSignups(): Promise<schema.EmailSignup[]> {
   try {
-    const { data, error } = await supabase
-      .from('waitlist_signups')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error in getEmailSignups:', error);
-      return [];
-    }
-
-    return data || [];
+    return await db
+      .select()
+      .from(schema.emailSignups)
+      .orderBy(desc(schema.emailSignups.createdAt));
   } catch (error) {
     console.error('Error in getEmailSignups:', error);
     return [];
   }
 }
 
-// Test database connection
-export async function testConnection() {
+// Waitlist signups (using separate table)
+export async function createWaitlistSignup(email: string): Promise<any> {
   try {
-    const { data, error } = await supabase
-      .from('users')
-      .select('count')
-      .limit(1);
-
-    if (error && error.code !== 'PGRST116') {
-      console.error('Supabase connection error:', error);
-      return false;
-    }
-
-    return true;
-  } catch (err) {
-    console.error('Supabase connection error:', err);
-    return false;
+    const [signup] = await db
+      .insert(schema.waitlistSignups)
+      .values({ email })
+      .returning();
+    return signup;
+  } catch (error) {
+    console.error('Error in createWaitlistSignup:', error);
+    throw error;
   }
 }
+
+export async function getWaitlistSignups(): Promise<any[]> {
+  try {
+    return await db
+      .select()
+      .from(schema.waitlistSignups)
+      .orderBy(desc(schema.waitlistSignups.createdAt));
+  } catch (error) {
+    console.error('Error in getWaitlistSignups:', error);
+    return [];
+  }
+}
+
+// Export the pool for session store
+export { pool };

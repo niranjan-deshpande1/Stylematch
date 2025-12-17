@@ -52,9 +52,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(200).end();
   });
 
-  // Waitlist signup endpoint - Supabase storage
+  // Waitlist signup endpoint - PostgreSQL storage
   app.post('/api/waitlist-signup', async (req, res) => {
-    // Set CORS headers for all domains
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -72,11 +71,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: 'Invalid email format' });
       }
 
-      // Save to Supabase database
       try {
         const result = await storage.createEmailSignup(email);
 
-        // Also save to file as backup
         const fs = await import('fs/promises');
         const timestamp = new Date().toISOString();
         await fs.appendFile('email-signups.txt', `${timestamp} - ${email} - FROM: ${req.get('origin') || 'unknown'}\n`);
@@ -86,9 +83,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status: 'success'
         });
       } catch (dbError) {
-        console.error('Supabase save failed:', dbError);
+        console.error('Database save failed:', dbError);
 
-        // If it's a duplicate email error, return a nice message
         if ((dbError as any)?.code === '23505' || (dbError as any)?.message?.includes('duplicate')) {
           return res.json({
             message: 'You\'re already on our waitlist! We\'ll be in touch soon.',
@@ -96,7 +92,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
-        // Fallback to file only
         const fs = await import('fs/promises');
         const timestamp = new Date().toISOString();
         await fs.appendFile('email-signups.txt', `${timestamp} - ${email} - FROM: ${req.get('origin') || 'unknown'}\n`);
@@ -558,11 +553,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Calculate matching scores for each item
       // An item is considered a match if it shares at least one tag with the inspiration
+      const inspirationTags = image.styleTags || [];
       const matchingItemIds = clothingItems
         .filter(item => {
           if (!item.styleTags || item.styleTags.length === 0) return false;
           return item.styleTags.some(tag =>
-            image.styleTags.includes(tag)
+            inspirationTags.includes(tag)
           );
         })
         .map(item => item.id);
