@@ -1,196 +1,93 @@
-import { apiRequest, setGuestModeHeader } from "./queryClient";
 import type {
-  InspirationImage,
   ClothingItem,
-  StyleTagsResponse,
+  InspirationImage,
   MissingPiece,
-  MissingPiecesResponse,
-  OutfitCombination,
-  OutfitCombinationsResponse,
-  StyleMatchingResponse
+  OutfitsResponse,
+  PublicUser,
+  SessionResponse,
+  SiteMode,
+  StyleMatchResponse,
 } from "@shared/schema";
+import { apiJson } from "./queryClient";
 
-// Helper function to enable/disable guest mode
-export function setGuestMode(enable: boolean) {
-  if (typeof window !== 'undefined') {
-    // Only use sessionStorage for guest mode (more secure, resets on browser close)
-    if (enable) {
-      sessionStorage.setItem('guestMode', 'true');
-    } else {
-      sessionStorage.removeItem('guestMode');
-    }
+// Typed wrappers around every API endpoint the client uses.
 
-    // Clear localStorage to avoid conflicts
-    localStorage.removeItem('guestMode');
+// ---- Session ----
 
-    // Update request headers
-    setGuestModeHeader(enable);
-  }
+export const getSession = () => apiJson<SessionResponse>("GET", "/api/session");
+export const startGuestSession = () => apiJson<SessionResponse>("POST", "/api/guest");
+export const login = (body: { username: string; password: string }) =>
+  apiJson<PublicUser>("POST", "/api/login", body);
+export const register = (body: { email: string; username: string; password: string }) =>
+  apiJson<PublicUser>("POST", "/api/register", body);
+export const logout = () => apiJson<void>("POST", "/api/logout");
+
+// ---- Closet ----
+
+export const getClosetItems = (category?: string | null) =>
+  apiJson<ClothingItem[]>("GET", category ? `/api/closet?category=${encodeURIComponent(category)}` : "/api/closet");
+
+export const getClosetCounts = () => apiJson<Record<string, number>>("GET", "/api/closet/counts");
+
+export function uploadClothingItem(file: File, category: string) {
+  const form = new FormData();
+  form.append("image", file);
+  form.append("category", category);
+  return apiJson<ClothingItem>("POST", "/api/closet", form);
 }
 
-// Helper to check if guest mode is enabled
-export function isGuestMode(): boolean {
-  if (typeof window === 'undefined') return false;
+export const analyzeClothingItem = (id: number) =>
+  apiJson<ClothingItem>("POST", `/api/closet/${id}/analyze`);
 
-  // Only check sessionStorage for guest mode (more secure, resets on browser close)
-  return sessionStorage.getItem('guestMode') === 'true';
+export const deleteClothingItem = (id: number) => apiJson<void>("DELETE", `/api/closet/${id}`);
+
+// ---- Inspiration ----
+
+export const getInspirationImages = () => apiJson<InspirationImage[]>("GET", "/api/inspiration");
+export const getInspirationImage = (id: number) =>
+  apiJson<InspirationImage>("GET", `/api/inspiration/${id}`);
+
+export function uploadInspirationImage(file: File) {
+  const form = new FormData();
+  form.append("image", file);
+  return apiJson<InspirationImage>("POST", "/api/inspiration", form);
 }
 
-// Get all clothing items
-export async function getClothingItems(): Promise<ClothingItem[]> {
-  const res = await apiRequest("GET", "/api/closet");
-  return res.json();
+export const analyzeInspirationImage = (id: number) =>
+  apiJson<InspirationImage>("POST", `/api/inspiration/${id}/analyze`);
+
+export const toggleInspirationSaved = (id: number) =>
+  apiJson<InspirationImage>("POST", `/api/inspiration/${id}/save`);
+
+export const deleteInspirationImage = (id: number) =>
+  apiJson<void>("DELETE", `/api/inspiration/${id}`);
+
+export const getStyleMatch = (id: number) =>
+  apiJson<StyleMatchResponse>("GET", `/api/inspiration/${id}/matching`);
+
+export async function getMissingPieces(id: number) {
+  const res = await apiJson<{ missingPieces: MissingPiece[] }>("GET", `/api/inspiration/${id}/missing-pieces`);
+  return res.missingPieces;
 }
 
-// Upload an inspiration image
-export async function uploadInspirationImage(file: File): Promise<InspirationImage> {
-  const formData = new FormData();
-  formData.append("image", file);
+// ---- Outfits ----
 
-  // Add guest mode header if in guest mode
-  const headers: HeadersInit = {};
-  if (isGuestMode()) {
-    headers['X-Guest-Mode'] = 'true';
-  }
-
-  const response = await fetch("/api/inspiration", {
-    method: "POST",
-    body: formData,
-    credentials: "include",
-    headers
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`${response.status}: ${text || response.statusText}`);
-  }
-
-  return response.json();
+export function getOutfits(filters: { season?: string; theme?: string }) {
+  const params = new URLSearchParams();
+  if (filters.season) params.set("season", filters.season);
+  if (filters.theme) params.set("theme", filters.theme);
+  const query = params.toString();
+  return apiJson<OutfitsResponse>("GET", query ? `/api/outfits?${query}` : "/api/outfits");
 }
 
-// Analyze an inspiration image with AI
-export async function analyzeInspirationImage(id: number): Promise<InspirationImage> {
-  const res = await apiRequest("POST", `/api/inspiration/${id}/analyze`);
-  return res.json();
-}
+// ---- Site ----
 
-// Upload a clothing item
-export async function uploadClothingItem(file: File, category: string): Promise<ClothingItem> {
-  const formData = new FormData();
-  formData.append("image", file);
-  formData.append("category", category);
-
-  // Add guest mode header if in guest mode
-  const headers: HeadersInit = {};
-  if (isGuestMode()) {
-    headers['X-Guest-Mode'] = 'true';
-  }
-
-  const response = await fetch("/api/closet", {
-    method: "POST",
-    body: formData,
-    credentials: "include",
-    headers
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`${response.status}: ${text || response.statusText}`);
-  }
-
-  return response.json();
-}
-
-// Analyze a clothing item with AI
-export async function analyzeClothingItem(id: number): Promise<ClothingItem> {
-  const res = await apiRequest("POST", `/api/closet/${id}/analyze`);
-  return res.json();
-}
-
-// Delete a clothing item
-export async function deleteClothingItem(id: number): Promise<void> {
-  await apiRequest("DELETE", `/api/closet/${id}`);
-}
-
-// Delete an inspiration image
-export async function deleteInspirationImage(id: number): Promise<void> {
-  await apiRequest("DELETE", `/api/inspiration/${id}`);
-}
-
-// Get missing pieces recommendations based on an inspiration image
-export async function getMissingPieceRecommendations(inspirationId: number): Promise<MissingPiece[]> {
-  const res = await apiRequest("GET", `/api/inspiration/${inspirationId}/missing-pieces`);
-  const data = await res.json() as MissingPiecesResponse;
-  return data.missingPieces;
-}
-
-// Get style matching between inspiration and closet items
-export async function getStyleMatching(inspirationId: number): Promise<StyleMatchingResponse> {
-  const res = await apiRequest("GET", `/api/inspiration/${inspirationId}/matching`);
-  return res.json();
-}
-
-// Get outfit combination suggestions based on closet items
-export async function getOutfitCombinations(options?: {
-  style?: string;
-  season?: string;
-  themeId?: string;
-}): Promise<OutfitCombination[]> {
-  let url = '/api/outfits';
-
-  if (options) {
-    const params = new URLSearchParams();
-    if (options.style && options.style.trim() !== '') params.append('style', options.style);
-    if (options.season && options.season.trim() !== '') params.append('season', options.season);
-    if (options.themeId && options.themeId.trim() !== '') params.append('themeId', options.themeId);
-
-    const queryString = params.toString();
-    if (queryString) {
-      url += `?${queryString}`;
-    }
-  }
-
-  const res = await apiRequest("GET", url);
-  const data = await res.json() as OutfitCombinationsResponse;
-  return data.outfits;
-}
-
-// Share outfit to social media
-export async function shareOutfitToSocial(
-  outfitId: string,
-  platform: 'instagram' | 'snapchat' | 'twitter' | 'facebook'
-): Promise<{ shareUrl: string }> {
-  try {
-    const res = await apiRequest("POST", `/api/outfits/${outfitId}/share`, {
-      platform
-    });
-
-    if (!res.ok) {
-      throw new Error(`Failed to share outfit: ${res.status} ${res.statusText}`);
-    }
-
-    return res.json();
-  } catch (error) {
-    console.error("Error in shareOutfitToSocial:", error);
-    throw error;
-  }
-}
-
-// Get a specific outfit by ID
-export async function getOutfit(outfitId: string): Promise<OutfitCombination> {
-  const res = await apiRequest("GET", `/api/outfits/${outfitId}`);
-  return res.json();
-}
-
-// Create a shareable image for an outfit
-export async function createOutfitShareableImage(
-  outfitId: string,
-  options: {
-    background?: string; // color hex code
-    template?: string; // template style
-    caption?: string;
-  }
-): Promise<{ imageUrl: string, shareUrl: string }> {
-  const res = await apiRequest("POST", `/api/outfits/${outfitId}/create-share-image`, options);
-  return res.json();
-}
+export const getSiteMode = () => apiJson<{ mode: SiteMode }>("GET", "/api/site/mode");
+export const joinWaitlist = (email: string) =>
+  apiJson<{ message: string }>("POST", "/api/site/waitlist", { email });
+export const getAdminSession = () => apiJson<{ isAdmin: boolean }>("GET", "/api/site/admin/session");
+export const adminLogin = (password: string) =>
+  apiJson<{ isAdmin: boolean }>("POST", "/api/site/admin/login", { password });
+export const adminLogout = () => apiJson<{ isAdmin: boolean }>("POST", "/api/site/admin/logout");
+export const setSiteMode = (mode: SiteMode) =>
+  apiJson<{ mode: SiteMode }>("PUT", "/api/site/admin/mode", { mode });

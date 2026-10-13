@@ -1,72 +1,62 @@
-import React, { useCallback, useState } from 'react';
-import { useDropzone } from 'react-dropzone';
-import { cn } from '@/lib/utils';
+import { useCallback, type ReactNode } from "react";
+import { useDropzone } from "react-dropzone";
+import { UploadCloud } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface FileInputProps {
-  onFileSelected: (file: File) => void;
-  accept?: string;
+  onFilesSelected: (files: File[]) => void;
   multiple?: boolean;
+  disabled?: boolean;
   className?: string;
-  icon?: React.ReactNode;
+  icon?: ReactNode;
   label?: string;
   sublabel?: string;
   buttonText?: string;
 }
 
+/** Drag-and-drop (or click-to-browse) image picker. */
 export function FileInput({
-  onFileSelected,
-  accept = 'image/*',
+  onFilesSelected,
   multiple = false,
+  disabled = false,
   className,
-  icon = <i className="fas fa-cloud-upload-alt text-3xl text-gray-500 mb-2"></i>,
-  label = 'Drop your photo here',
-  sublabel = 'or click to browse',
-  buttonText = 'Select Image'
+  icon = <UploadCloud className="mb-2 h-8 w-8 text-zinc-500" />,
+  label = "drop your photo here",
+  sublabel = "or click to browse",
+  buttonText = "select image",
 }: FileInputProps) {
-  const [isDragActive, setIsDragActive] = useState(false);
+  const onDrop = useCallback(
+    (files: File[]) => {
+      if (files.length > 0) onFilesSelected(files);
+    },
+    [onFilesSelected],
+  );
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    if (acceptedFiles.length > 0) {
-      if (multiple) {
-        acceptedFiles.forEach(file => onFileSelected(file));
-      } else {
-        onFileSelected(acceptedFiles[0]);
-      }
-    }
-  }, [multiple, onFileSelected]);
-
-  const { getRootProps, getInputProps, isDragAccept, isDragReject } = useDropzone({
+  const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
     onDrop,
-    accept: { [accept]: [] },
     multiple,
-    onDragEnter: () => setIsDragActive(true),
-    onDragLeave: () => setIsDragActive(false),
-    onDropAccepted: () => setIsDragActive(false),
-    onDropRejected: () => setIsDragActive(false),
+    disabled,
+    accept: { "image/jpeg": [], "image/png": [], "image/webp": [] },
   });
 
   return (
     <div
       {...getRootProps()}
       className={cn(
-        'cursor-pointer flex flex-col items-center justify-center border border-zinc-800 transition-colors bg-zinc-900/50 p-8',
-        {
-          'border-zinc-300 bg-zinc-900': isDragActive || isDragAccept,
-          'border-red-500 bg-red-900/10': isDragReject,
-        },
-        className
+        "flex cursor-pointer flex-col items-center justify-center border border-zinc-800 bg-zinc-900/50 p-8 transition-colors",
+        isDragActive && "border-zinc-300 bg-zinc-900",
+        isDragReject && "border-red-500 bg-red-900/10",
+        disabled && "cursor-not-allowed opacity-60",
+        className,
       )}
     >
       <input {...getInputProps()} />
       {icon}
-      <p className="text-zinc-300 font-light">{label}</p>
-      <p className="text-zinc-500 text-sm mt-1">{sublabel}</p>
-      <button
-        type="button"
-        className="mt-6 px-6 py-2 bg-black text-zinc-300 border border-zinc-800 text-sm hover:bg-zinc-900 hover:border-zinc-700 transition-colors"
-      >
+      <p className="font-light text-zinc-300">{label}</p>
+      <p className="mt-1 text-sm text-zinc-500">{sublabel}</p>
+      <span className="mt-6 border border-zinc-800 bg-black px-6 py-2 text-sm text-zinc-300 transition-colors hover:border-zinc-700 hover:bg-zinc-900">
         {buttonText}
-      </button>
+      </span>
     </div>
   );
 }

@@ -1,268 +1,235 @@
+import crypto from "crypto";
+import { promisify } from "util";
+import type { Express, NextFunction, Request, Response } from "express";
+import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
-import { Express, Request, Response, NextFunction } from "express";
-import session from "express-session";
-import * as crypto from "crypto";
-import { promisify } from "util";
-import { storage } from "./storage";
-import { User } from "@shared/schema";
+import rateLimit from "express-rate-limit";
+import { z } from "zod";
+import type { PublicUser, SessionResponse, User as DbUser } from "@shared/schema";
+import { pool } from "./db";
+import * as storage from "./storage";
+import { asyncHandler, HttpError } from "./http";
 
 declare global {
   namespace Express {
-    interface User {
-      id: number;
-      email: string;
-      username: string;
-      password: string;
-    }
+    interface User extends DbUser {}
   }
 }
 
-const scryptAsync = promisify(crypto.scrypt);
+declare module "express-session" {
+  interface SessionData {
+    guestId?: number;
+    isAdmin?: boolean;
+  }
+}
 
-async function hashPassword(password: string): Promise<string> {
+// ---- Passwords --------------------------------------------------------------
+
+const scrypt = promisify(crypto.scrypt) as (password: string, salt: string, keylen: number) => Promise<Buffer>;
+
+// Stored as "<hash hex>.<salt hex>".
+export async function hashPassword(password: string): Promise<string> {
   const salt = crypto.randomBytes(16).toString("hex");
-  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
-  return `${buf.toString("hex")}.${salt}`;
+  const hash = await scrypt(password, salt, 64);
+  return `${hash.toString("hex")}.${salt}`;
 }
 
-async function comparePasswords(supplied: string, stored: string): Promise<boolean> {
-  try {
-    const [hashed, salt] = stored.split(".");
-    if (!hashed || !salt) return false;
-    const hashedBuf = Buffer.from(hashed, "hex");
-    const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
-    return crypto.timingSafeEqual(hashedBuf, suppliedBuf);
-  } catch {
-    return false;
-  }
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  const [hashHex, salt] = stored.split(".");
+  if (!hashHex || !salt) return false;
+  const expected = Buffer.from(hashHex, "hex");
+  const actual = await scrypt(password, salt, 64);
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 }
+
+// ---- Helpers used by the routes ------------------------------------------------
+
+function toPublicUser(user: DbUser): PublicUser {
+  const { password: _password, ...rest } = user;
+  return rest;
+}
+
+/**
+ * The id that owns closet items and inspiration images for this request:
+ * the user's id when signed in, the session's guest id otherwise.
+ */
+export function getOwnerId(req: Request): number | null {
+  if (req.user) return req.user.id;
+  return req.session.guestId ?? null;
+}
+
+/** Rejects the request unless it comes from a signed-in user or a guest session. */
+export function requireOwner(req: Request, _res: Response, next: NextFunction) {
+  if (getOwnerId(req) === null) {
+    return next(new HttpError(401, "Sign in or continue as a guest first"));
+  }
+  next();
+}
+
+export function ownerId(req: Request): number {
+  const id = getOwnerId(req);
+  if (id === null) throw new HttpError(401, "Sign in or continue as a guest first");
+  return id;
+}
+
+function newGuestId(): number {
+  // Negative so it can never collide with a serial user id.
+  return -crypto.randomInt(1, 2 ** 31 - 1);
+}
+
+/** Logs the user in, and moves over anything they made as a guest. */
+function logIn(req: Request, user: DbUser): Promise<void> {
+  const guestId = req.session.guestId;
+  return new Promise((resolve, reject) => {
+    // passport regenerates the session on login, which drops guestId.
+    req.login(user, async (err) => {
+      if (err) return reject(err);
+      try {
+        if (guestId) await storage.transferGuestData(guestId, user.id);
+        resolve();
+      } catch (transferErr) {
+        reject(transferErr);
+      }
+    });
+  });
+}
+
+// ---- Setup ------------------------------------------------------------------
+
+const registerSchema = z.object({
+  email: z.string().trim().toLowerCase().email("Enter a valid email address"),
+  username: z
+    .string()
+    .trim()
+    .min(3, "Username must be at least 3 characters")
+    .max(30, "Username must be 30 characters or fewer"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+const guestLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { message: "Too many guest sessions from this network. Try again later." },
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { message: "Too many attempts. Try again in a few minutes." },
+});
 
 export function setupAuth(app: Express) {
-  const SESSION_SECRET = process.env.SESSION_SECRET;
-  if (!SESSION_SECRET) {
-    console.error('FATAL: SESSION_SECRET environment variable is not set. Sessions will not work securely.');
-    // In production, we would throw an error. For development, generate a random secret
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('SESSION_SECRET environment variable is required in production');
-    }
+  const secret = process.env.SESSION_SECRET;
+  if (!secret && process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET must be set in production");
   }
-  const sessionSecret = SESSION_SECRET || require('crypto').randomBytes(32).toString('hex');
-  const sessionMaxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-  const sessionSettings: session.SessionOptions = {
-    secret: sessionSecret,
-    resave: false,
-    saveUninitialized: false,
-    rolling: true,
-    store: storage.sessionStore,
-    name: 'stylematch.sid',
-    proxy: true,
-    cookie: {
-      maxAge: sessionMaxAge,
-      secure: process.env.NODE_ENV === 'production',
-      httpOnly: true,
-      sameSite: 'lax' as const,
-      path: '/',
-    },
-  };
+  const PgStore = connectPgSimple(session);
 
-  app.set("trust proxy", 1);
-  app.use(session(sessionSettings));
+  app.use(
+    session({
+      name: "stylematch.sid",
+      secret: secret ?? crypto.randomBytes(32).toString("hex"),
+      store: new PgStore({ pool, tableName: "session", createTableIfMissing: true }),
+      resave: false,
+      saveUninitialized: false,
+      rolling: true,
+      cookie: {
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+      },
+    }),
+  );
   app.use(passport.initialize());
   app.use(passport.session());
 
-  // Local strategy for username/password authentication
   passport.use(
-    new LocalStrategy({
-      usernameField: 'username',
-      passwordField: 'password',
-    },
-    async (username, password, done) => {
+    new LocalStrategy(async (login, password, done) => {
       try {
-        // Try to find the user by username first
-        let user = await storage.getUserByUsername(username);
-
-        // If not found by username, try by email
-        if (!user && username.includes('@')) {
-          user = await storage.getUserByEmail(username);
+        const user = await storage.findUserByLogin(login.trim());
+        if (!user || !(await verifyPassword(password, user.password))) {
+          return done(null, false, { message: "Invalid username or password" });
         }
-
-        if (!user) {
-          return done(null, false, { message: 'Invalid credentials' });
-        }
-
-        const isValid = await comparePasswords(password, user.password);
-        if (!isValid) {
-          return done(null, false, { message: 'Invalid credentials' });
-        }
-
-        return done(null, user);
+        done(null, user);
       } catch (err) {
-        return done(err);
+        done(err);
       }
     }),
   );
 
-  passport.serializeUser((user: any, done) => {
-    if (user && user.id) {
-      done(null, user.id);
-    } else {
-      done(new Error("Invalid user object"));
-    }
-  });
-
+  passport.serializeUser((user, done) => done(null, user.id));
   passport.deserializeUser(async (id: number, done) => {
     try {
-      const user = await storage.getUser(id);
-      if (!user) {
-        return done(null, false);
-      }
-      done(null, user);
+      done(null, (await storage.getUser(id)) ?? false);
     } catch (err) {
-      console.error('Error deserializing user:', err);
-      done(null, false);
+      done(err);
     }
   });
 
-  // Register endpoint
-  app.post("/api/register", async (req, res, next) => {
-    try {
-      const { email, username, password } = req.body;
+  app.get("/api/session", (req, res) => {
+    const body: SessionResponse = {
+      user: req.user ? toPublicUser(req.user) : null,
+      isGuest: !req.user && req.session.guestId !== undefined,
+    };
+    res.json(body);
+  });
 
-      if (!email || !username || !password) {
-        return res.status(400).json({
-          message: "Email, username, and password are required"
-        });
-      }
-
-      // Validate email format
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        return res.status(400).json({
-          message: "Please enter a valid email address"
-        });
-      }
-
-      // Check if username exists
-      const existingUsername = await storage.getUserByUsername(username);
-      if (existingUsername) {
-        return res.status(400).json({
-          message: "Username already exists"
-        });
-      }
-
-      // Check if email exists
-      const existingEmail = await storage.getUserByEmail(email);
-      if (existingEmail) {
-        return res.status(400).json({
-          message: "Email already exists"
-        });
-      }
-
-      // Create the user with hashed password
-      const user = await storage.createUser({
-        email,
-        username,
-        password: await hashPassword(password),
-      });
-
-      // Log the user in
-      req.login(user, (err) => {
-        if (err) {
-          console.error("Session error during registration:", err);
-          return next(err);
-        }
-
-        req.session.save((saveErr) => {
-          if (saveErr) {
-            console.error("Error saving session during registration:", saveErr);
-          }
-
-          const { password: _, ...userWithoutPassword } = user;
-          res.status(201).json(userWithoutPassword);
-        });
-      });
-    } catch (err) {
-      console.error("Registration error:", err);
-      next(err);
+  app.post("/api/guest", guestLimiter, (req, res) => {
+    if (!req.user && req.session.guestId === undefined) {
+      req.session.guestId = newGuestId();
     }
+    res.json({ user: null, isGuest: !req.user } satisfies SessionResponse);
   });
 
-  // Login endpoint
-  app.post("/api/login", (req, res, next) => {
-    passport.authenticate("local", (err: Error | null, user: User | false, info: { message: string } | undefined) => {
-      if (err) {
-        console.error("Login error:", err);
-        return next(err);
+  app.post(
+    "/api/register",
+    authLimiter,
+    asyncHandler(async (req, res) => {
+      const parsed = registerSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new HttpError(400, parsed.error.issues[0].message);
       }
+      const { email, username, password } = parsed.data;
 
-      if (!user) {
-        return res.status(401).json({
-          message: info?.message || "Invalid credentials"
-        });
-      }
+      const taken = await storage.isUsernameOrEmailTaken(username, email);
+      if (taken.username) throw new HttpError(409, "That username is taken");
+      if (taken.email) throw new HttpError(409, "An account with that email already exists");
 
-      req.login(user, (err) => {
-        if (err) {
-          console.error("Session error during login:", err);
-          return next(err);
-        }
+      const user = await storage.createUser({ email, username, password: await hashPassword(password) });
+      await logIn(req, user);
+      res.status(201).json(toPublicUser(user));
+    }),
+  );
 
-        req.session.save((saveErr) => {
-          if (saveErr) {
-            console.error("Error saving session during login:", saveErr);
-          }
-
-          const { password: _, ...userWithoutPassword } = user;
-          return res.status(200).json(userWithoutPassword);
-        });
-      });
-    })(req, res, next);
+  app.post("/api/login", authLimiter, (req, res, next) => {
+    passport.authenticate(
+      "local",
+      (err: Error | null, user: DbUser | false, info?: { message: string }) => {
+        if (err) return next(err);
+        if (!user) return res.status(401).json({ message: info?.message ?? "Invalid username or password" });
+        logIn(req, user)
+          .then(() => res.json(toPublicUser(user)))
+          .catch(next);
+      },
+    )(req, res, next);
   });
 
-  // Logout endpoint
   app.post("/api/logout", (req, res, next) => {
-    const username = req.user ? (req.user as any).username : 'unknown';
-
     req.logout((err) => {
-      if (err) {
-        console.error("Error during logout:", err);
-        return next(err);
-      }
-
+      if (err) return next(err);
       req.session.destroy((destroyErr) => {
-        if (destroyErr) {
-          console.error("Error destroying session during logout:", destroyErr);
-        }
-
-        res.clearCookie('stylematch.sid', {
-          path: '/',
-          httpOnly: true,
-          secure: process.env.NODE_ENV === 'production',
-          sameSite: 'lax'
-        });
-
-        res.sendStatus(200);
+        if (destroyErr) return next(destroyErr);
+        res.clearCookie("stylematch.sid");
+        res.sendStatus(204);
       });
     });
   });
-
-  // Get current user endpoint
-  app.get("/api/user", (req, res) => {
-    if (!req.isAuthenticated() || !req.user) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
-
-    const { password: _, ...userWithoutPassword } = req.user as any;
-    return res.json(userWithoutPassword);
-  });
-}
-
-// Middleware to check if user is authenticated
-export function isAuthenticated(req: Request, res: Response, next: NextFunction) {
-  if (req.isAuthenticated() && req.user) {
-    return next();
-  }
-  res.status(401).json({ message: "Unauthorized" });
 }

@@ -1,5 +1,7 @@
 node_modules
 dist
 .DS_Store
-server/public
-*.tar.gz
+.env
+
+# Local image storage (used when no bucket is configured)
+uploads/

@@ -1,151 +1,119 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button } from '@/components/ui/button';
-import { Link } from 'wouter';
-import { useToast } from '@/hooks/use-toast';
-import { deleteClothingItem } from '@/lib/api';
-import { clothingCategories, ClothingItem } from '@shared/schema';
+import { useState } from "react";
+import { Link } from "wouter";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Loader2, Plus, Shirt, Trash2 } from "lucide-react";
+import { clothingCategories, type ClothingItem } from "@shared/schema";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { deleteClothingItem, getClosetCounts, getClosetItems } from "@/lib/api";
+import { queryClient } from "@/lib/queryClient";
 
 export default function Closet() {
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [category, setCategory] = useState<string | null>(null);
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
-  // Fetch clothing items
-  const { data: clothingItems = [], isLoading } = useQuery<ClothingItem[]>({
-    queryKey: [selectedCategory ? `/api/closet?category=${selectedCategory}` : '/api/closet'],
+  const { data: items = [], isLoading } = useQuery({
+    queryKey: ["/api/closet", category],
+    queryFn: () => getClosetItems(category),
   });
+  const { data: counts = {} } = useQuery({ queryKey: ["/api/closet/counts"], queryFn: getClosetCounts });
 
-  // Fetch category counts
-  interface CategoryCounts {
-    all: number;
-    [key: string]: number;
-  }
-  
-  const { data: categoryCounts = { all: 0 } as CategoryCounts } = useQuery<CategoryCounts>({
-    queryKey: ['/api/categories'],
-  });
-  
-  // Delete clothing item mutation
   const deleteMutation = useMutation({
-    mutationFn: (id: number) => deleteClothingItem(id),
+    mutationFn: deleteClothingItem,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/closet'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/categories'] });
-      
-      toast({
-        title: "Item deleted",
-        description: "The clothing item has been removed from your closet.",
-      });
+      queryClient.invalidateQueries({ queryKey: ["/api/closet"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/closet/counts"] });
+      toast({ title: "item deleted" });
     },
-    onError: (error) => {
-      toast({
-        title: "Delete failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
+    onError: (error) => toast({ title: "couldn't delete item", description: error.message, variant: "destructive" }),
   });
 
-  const handleDeleteItem = (item: ClothingItem) => {
-    deleteMutation.mutate(item.id);
-  };
+  const tabClass = (active: boolean) =>
+    `whitespace-nowrap border border-zinc-800 px-4 py-2 text-sm transition-colors ${
+      active ? "bg-zinc-800 text-zinc-300" : "bg-black text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
+    }`;
 
   return (
-    <section className="py-12 px-4">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl text-zinc-300 font-light">your closet</h1>
-          <Link href="/closet-upload">
-            <Button className="bg-black hover:bg-zinc-900 text-zinc-300 border border-zinc-800 text-sm px-6">
-              <i className="fas fa-plus mr-2"></i> add items
-            </Button>
-          </Link>
+    <section className="px-4 py-12">
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-6 flex items-center justify-between">
+          <h1 className="text-3xl font-light text-zinc-300">your closet</h1>
+          <Button asChild className="border border-zinc-800 bg-black px-6 text-sm text-zinc-300 hover:bg-zinc-900">
+            <Link href="/closet-upload">
+              <Plus className="mr-2 h-4 w-4" /> add items
+            </Link>
+          </Button>
         </div>
 
-        <div className="mb-6">
-          {/* Categories */}
-          <div className="flex overflow-x-auto space-x-3 pb-4">
-            <button 
-              className={`px-4 py-2 ${!selectedCategory ? 'bg-zinc-800 text-zinc-300' : 'bg-black text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900'} border border-zinc-800 text-sm whitespace-nowrap transition-colors`}
-              onClick={() => setSelectedCategory(null)}
-            >
-              all items ({categoryCounts.all || 0})
+        <div className="mb-6 flex space-x-3 overflow-x-auto pb-4">
+          <button className={tabClass(category === null)} onClick={() => setCategory(null)}>
+            all items ({counts.all ?? 0})
+          </button>
+          {clothingCategories.map((c) => (
+            <button key={c} className={tabClass(category === c)} onClick={() => setCategory(c)}>
+              {c} ({counts[c] ?? 0})
             </button>
-            
-            {clothingCategories.map(category => {
-              const count = categoryCounts[category as keyof typeof categoryCounts] || 0;
-              return (
-                <button 
-                  key={category}
-                  className={`px-4 py-2 ${selectedCategory === category ? 'bg-zinc-800 text-zinc-300' : 'bg-black text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900'} border border-zinc-800 text-sm whitespace-nowrap transition-colors`}
-                  onClick={() => setSelectedCategory(category)}
-                >
-                  {category} ({count})
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Closet Grid */}
-          {isLoading ? (
-            <div className="flex justify-center items-center h-64 bg-zinc-900 border border-zinc-800">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-zinc-300"></div>
-            </div>
-          ) : clothingItems.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {clothingItems.map((item: ClothingItem) => (
-                <div key={item.id} className="bg-zinc-900 border border-zinc-800 overflow-hidden group">
-                  <div className="aspect-square relative overflow-hidden">
-                    <img 
-                      src={item.imageUrl} 
-                      alt={item.category} 
-                      className="w-full h-full object-cover" 
-                    />
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/60 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                      <button 
-                        className="p-3 bg-black border border-zinc-700 rounded-full text-red-400 hover:bg-zinc-900 transition-colors"
-                        onClick={() => handleDeleteItem(item)}
-                      >
-                        <i className="fas fa-trash"></i>
-                      </button>
-                    </div>
-                  </div>
-                  <div className="p-4">
-                    <h3 className="text-zinc-300 mb-2">{item.category}</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {item.styleTags.slice(0, 3).map((tag, index) => (
-                        <span key={index} className="text-xs text-zinc-500">#{tag}</span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-16 bg-zinc-900 border border-zinc-800">
-              <i className="fas fa-tshirt text-4xl text-zinc-700 mb-4"></i>
-              <h3 className="text-xl text-zinc-300 mb-2 font-light">your closet is empty</h3>
-              <p className="text-zinc-500 mb-6">
-                start by adding some clothing items to your closet
-              </p>
-              <Link href="/closet-upload">
-                <Button className="bg-black hover:bg-zinc-900 text-zinc-300 border border-zinc-800 text-sm px-6">
-                  add clothing items
-                </Button>
-              </Link>
-            </div>
-          )}
-
-          {clothingItems.length > 0 && clothingItems.length >= 20 && (
-            <div className="mt-8 text-center">
-              <Button className="bg-black hover:bg-zinc-900 text-zinc-300 border border-zinc-800 text-sm px-6">
-                load more items
-              </Button>
-            </div>
-          )}
+          ))}
         </div>
+
+        {isLoading ? (
+          <div className="flex h-64 items-center justify-center border border-zinc-800 bg-zinc-900">
+            <Loader2 className="h-10 w-10 animate-spin text-zinc-400" />
+          </div>
+        ) : items.length > 0 ? (
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {items.map((item) => (
+              <ClosetCard
+                key={item.id}
+                item={item}
+                onDelete={() => {
+                  if (window.confirm("delete this item from your closet?")) deleteMutation.mutate(item.id);
+                }}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="border border-zinc-800 bg-zinc-900 py-16 text-center">
+            <Shirt className="mx-auto mb-4 h-10 w-10 text-zinc-700" />
+            <h3 className="mb-2 text-xl font-light text-zinc-300">
+              {category ? `no ${category} yet` : "your closet is empty"}
+            </h3>
+            <p className="mb-6 text-zinc-500">start by adding some clothing items</p>
+            <Button asChild className="border border-zinc-800 bg-black px-6 text-sm text-zinc-300 hover:bg-zinc-900">
+              <Link href="/closet-upload">add clothing items</Link>
+            </Button>
+          </div>
+        )}
       </div>
     </section>
+  );
+}
+
+function ClosetCard({ item, onDelete }: { item: ClothingItem; onDelete: () => void }) {
+  return (
+    <div className="group overflow-hidden border border-zinc-800 bg-zinc-900">
+      <div className="relative aspect-square overflow-hidden">
+        <img src={item.imageUrl} alt={item.category} className="h-full w-full object-cover" />
+        <div className="absolute inset-0 flex items-start justify-end p-2 transition-colors sm:items-center sm:justify-center sm:bg-black/0 sm:p-0 sm:opacity-0 sm:group-hover:bg-black/60 sm:group-hover:opacity-100">
+          <button
+            onClick={onDelete}
+            aria-label="delete item"
+            className="rounded-full border border-zinc-700 bg-black p-3 text-red-400 transition-colors hover:bg-zinc-900"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+      <div className="p-4">
+        <h3 className="mb-2 text-zinc-300">{item.category}</h3>
+        <div className="flex flex-wrap gap-2">
+          {(item.styleTags ?? []).slice(0, 3).map((tag) => (
+            <span key={tag} className="text-xs text-zinc-500">
+              #{tag}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

@@ -1,136 +1,83 @@
-import { createContext, ReactNode, useContext } from "react";
-import {
-  useQuery,
-  useMutation,
-  UseMutationResult,
-} from "@tanstack/react-query";
-import { User, InsertUser } from "@shared/schema";
-import { apiRequest, getQueryFn, queryClient } from "@/lib/queryClient";
+import { createContext, useContext, type ReactNode } from "react";
+import { useMutation, useQuery, type UseMutationResult } from "@tanstack/react-query";
+import type { PublicUser, SessionResponse } from "@shared/schema";
+import * as api from "@/lib/api";
+import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
-type AuthContextType = {
-  user: User | null;
+type LoginInput = { username: string; password: string };
+type RegisterInput = { email: string; username: string; password: string };
+
+interface AuthContextValue {
+  user: PublicUser | null;
+  isGuest: boolean;
+  /** True once the user is signed in or has chosen guest mode. */
+  hasSession: boolean;
   isLoading: boolean;
-  isAuthenticated: boolean;
-  error: Error | null;
-  loginMutation: UseMutationResult<User, Error, LoginData>;
+  loginMutation: UseMutationResult<PublicUser, Error, LoginInput>;
+  registerMutation: UseMutationResult<PublicUser, Error, RegisterInput>;
+  guestMutation: UseMutationResult<SessionResponse, Error, void>;
   logoutMutation: UseMutationResult<void, Error, void>;
-  registerMutation: UseMutationResult<User, Error, InsertUser>;
-};
+}
 
-type LoginData = Pick<InsertUser, "username" | "password">;
+const SESSION_KEY = ["/api/session"];
+const AuthContext = createContext<AuthContextValue | null>(null);
 
-const AuthContext = createContext<AuthContextType | null>(null);
+/** Replace the cached session and refetch everything else, since the owner changed. */
+function resetSession(session: SessionResponse) {
+  queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== SESSION_KEY[0] });
+  queryClient.setQueryData(SESSION_KEY, session);
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
+  const { data, isLoading } = useQuery({ queryKey: SESSION_KEY, queryFn: api.getSession });
 
-  // Get current user from API
-  const {
-    data: user,
-    error,
-    isLoading,
-    refetch,
-  } = useQuery<User | null, Error>({
-    queryKey: ["/api/user"],
-    queryFn: getQueryFn({ on401: "returnNull" }),
-    staleTime: 30000, // 30 seconds
-    retry: 3, // Increase retries for better reliability across networks and devices
-    retryDelay: attempt => Math.min(1000 * 2 ** attempt, 30000), // Exponential backoff with max 30s delay
-    // Careful caching configuration for better persistence
-    refetchOnWindowFocus: true, // Recheck auth when window gets focus
-    refetchOnReconnect: true, // Recheck auth when network reconnects
-    refetchOnMount: true, // Always recheck auth when component mounts
-    refetchInterval: 5 * 60 * 1000, // Recheck auth every 5 minutes
-    // Session refresh logic - ping more frequently as session age increases
-    refetchIntervalInBackground: true,
-  });
+  const onError = (title: string) => (error: Error) => {
+    toast({ title, description: error.message, variant: "destructive" });
+  };
 
-  // Login mutation
   const loginMutation = useMutation({
-    mutationFn: async (credentials: LoginData) => {
-      const res = await apiRequest("POST", "/api/login", credentials);
-      return await res.json();
-    },
-    onSuccess: (user: User) => {
-      queryClient.setQueryData(["/api/user"], user);
-      localStorage.removeItem("guestMode");
-      sessionStorage.removeItem("guestMode");
-
-      toast({
-        title: "Welcome back!",
-        description: "You have successfully signed in.",
-        variant: "default",
-      });
-    },
-    onError: (error: Error) => {
-      console.error('Login error:', error);
-      toast({
-        title: "Login failed",
-        description: error.message || "Please check your credentials and try again.",
-        variant: "destructive",
-      });
-    },
+    mutationFn: api.login,
+    onSuccess: (user) => resetSession({ user, isGuest: false }),
+    onError: onError("login failed"),
   });
 
-  // Registration mutation
   const registerMutation = useMutation({
-    mutationFn: async (credentials: InsertUser) => {
-      const res = await apiRequest("POST", "/api/register", credentials);
-      return await res.json();
+    mutationFn: api.register,
+    onSuccess: (user) => {
+      resetSession({ user, isGuest: false });
+      toast({ title: "account created", description: "welcome to stylematch" });
     },
-    onSuccess: (user: User) => {
-      queryClient.setQueryData(["/api/user"], user);
-      localStorage.removeItem("guestMode");
-      sessionStorage.removeItem("guestMode");
-
-      toast({
-        title: "Account created",
-        description: "Your account has been created successfully.",
-        variant: "default",
-      });
-    },
-    onError: (error: Error) => {
-      console.error('Registration error:', error);
-      toast({
-        title: "Registration failed",
-        description: error.message || "Please check your information and try again.",
-        variant: "destructive",
-      });
-    },
+    onError: onError("sign up failed"),
   });
 
-  // Logout mutation
+  const guestMutation = useMutation({
+    mutationFn: api.startGuestSession,
+    onSuccess: resetSession,
+    onError: onError("couldn't start a guest session"),
+  });
+
   const logoutMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/logout");
-    },
-    onSuccess: () => {
-      queryClient.setQueryData(["/api/user"], null);
-      localStorage.removeItem("guestMode");
-      sessionStorage.removeItem("guestMode");
-      queryClient.invalidateQueries();
-    },
-    onError: (error: Error) => {
-      console.error('Logout error:', error);
-      toast({
-        title: "Logout failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
+    mutationFn: api.logout,
+    onSuccess: () => resetSession({ user: null, isGuest: false }),
+    onError: onError("logout failed"),
   });
+
+  const user = data?.user ?? null;
+  const isGuest = data?.isGuest ?? false;
 
   return (
     <AuthContext.Provider
       value={{
-        user: user || null,
+        user,
+        isGuest,
+        hasSession: Boolean(user) || isGuest,
         isLoading,
-        isAuthenticated: !!user,
-        error,
         loginMutation,
-        logoutMutation,
         registerMutation,
+        guestMutation,
+        logoutMutation,
       }}
     >
       {children}
@@ -138,14 +85,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// Define as a named function expression for better React Fast Refresh compatibility
-const useAuth = function useAuth() {
+export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
+  if (!context) throw new Error("useAuth must be used inside AuthProvider");
   return context;
-};
-
-// Export the hook
-export { useAuth };
+}

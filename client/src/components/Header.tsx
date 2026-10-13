@@ -1,293 +1,120 @@
-import { Link, useLocation } from 'wouter';
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { useState } from "react";
+import { Link, useLocation } from "wouter";
+import { LogOut, Menu, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuTrigger
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/use-auth";
-import { User, LogOut, Menu } from "lucide-react";
-import logoPath from "@assets/logo.png";
-import { useEffect, useState } from "react";
-import { useIsMobile } from '@/hooks/use-mobile';
+
+const NAV_LINKS = [
+  { href: "/", label: "home" },
+  { href: "/closet", label: "my closet" },
+  { href: "/outfit-creator", label: "outfit creator" },
+  { href: "/inspiration", label: "inspiration" },
+];
 
 export default function Header() {
   const [location] = useLocation();
   const { user, logoutMutation } = useAuth();
-  const [isGuestMode, setIsGuestMode] = useState(false);
-  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 0);
-  const isMobile = useIsMobile();
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  // Track window width for responsive adjustments
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const handleResize = () => setWindowWidth(window.innerWidth);
-      window.addEventListener('resize', handleResize);
-      return () => window.removeEventListener('resize', handleResize);
-    }
-  }, []);
+  const isActive = (href: string) => (href === "/" ? location === "/" : location.startsWith(href));
+  const linkClass = (href: string) =>
+    `text-sm font-medium transition-colors hover:text-gray-400 ${isActive(href) ? "text-white underline" : "text-gray-300"}`;
 
-  // Check if user is in guest mode
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setIsGuestMode(localStorage.getItem("guestMode") === "true");
-    }
-  }, [location]); // Re-check when location changes
-
-  const handleLogout = () => {
-    logoutMutation.mutate();
-  };
-
-  const exitGuestMode = () => {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem("guestMode");
-      window.location.href = "/auth";
-    }
-  };
-
-  // Determine which logo to show based on screen width
-  const showFullLogo = windowWidth > 360; // Only show full logo if width > 360px
+  const accountButtons = (
+    <>
+      <Button asChild variant="outline" size="sm" className="w-full text-xs">
+        <Link href="/auth" onClick={() => setMenuOpen(false)}>
+          sign in
+        </Link>
+      </Button>
+      <Button asChild size="sm" className="w-full bg-white text-xs text-black hover:bg-zinc-200">
+        <Link href="/auth?tab=register" onClick={() => setMenuOpen(false)}>
+          create account
+        </Link>
+      </Button>
+    </>
+  );
 
   return (
     <header className="border-b border-neutral-800/50 bg-transparent backdrop-blur-sm">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex justify-between items-center">
-        <div className="flex items-center flex-shrink-0">
-          <Link href="/">
-            <div className="flex items-center">
-              <img src={logoPath} alt="StyleMatch logo" className="h-10 w-10 mr-2" />
-              {showFullLogo && (
-                <span className="text-2xl font-medium lowercase tracking-tight">
-                  <span className="gradient-text">style</span>match
-                </span>
-              )}
-            </div>
-          </Link>
-        </div>
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-6 sm:px-6 lg:px-8">
+        <Link href="/" className="flex items-center">
+          <img src="/assets/logo.png" alt="StyleMatch logo" className="mr-2 h-10 w-10" />
+          <span className="hidden text-2xl font-medium tracking-tight min-[360px]:inline">
+            <span className="gradient-text">style</span>match
+          </span>
+        </Link>
 
-        <nav className="hidden md:flex items-center space-x-8">
-          <Link href="/">
-            <span className={`text-sm font-medium hover:text-gray-400 transition-colors ${location === '/' ? 'text-white underline' : 'text-gray-300'}`}>
-              home
-            </span>
-          </Link>
-          <Link href="/closet">
-            <span className={`text-sm font-medium hover:text-gray-400 transition-colors ${location === '/closet' ? 'text-white underline' : 'text-gray-300'}`}>
-              my closet
-            </span>
-          </Link>
-          <Link href="/outfit-creator">
-            <span className={`text-sm font-medium hover:text-gray-400 transition-colors ${location === '/outfit-creator' ? 'text-white underline' : 'text-gray-300'}`}>
-              outfit creator
-            </span>
-          </Link>
-          <Link href="/inspiration">
-            <span className={`text-sm font-medium hover:text-gray-400 transition-colors ${location.startsWith('/inspiration') ? 'text-white underline' : 'text-gray-300'}`}>
-              inspiration
-            </span>
-          </Link>
+        <nav className="hidden items-center space-x-8 md:flex">
+          {NAV_LINKS.map((link) => (
+            <Link key={link.href} href={link.href} className={linkClass(link.href)}>
+              {link.label}
+            </Link>
+          ))}
         </nav>
 
-        {/* Account section - hidden on very small screens */}
-        <div className="flex items-center">
-          {/* User account menu - always show if logged in */}
+        <div className="flex items-center gap-2">
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full">
+                <Button variant="ghost" size="icon" className="rounded-full" aria-label="account">
                   <User className="h-5 w-5" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem className="text-xs">{user.username}</DropdownMenuItem>
-                <DropdownMenuItem onClick={handleLogout}>
+                <DropdownMenuLabel className="text-xs font-normal text-zinc-400">{user.username}</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => logoutMutation.mutate()}>
                   <LogOut className="mr-2 h-4 w-4" />
-                  <span>logout</span>
+                  logout
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <>
-              {/* Show sign in button on medium screens only if in guest mode */}
-              {isGuestMode && windowWidth > 360 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-xs mr-2"
-                  onClick={exitGuestMode}
-                >
-                  sign in
-                </Button>
-              )}
-
-              {/* Show sign in/create account buttons on medium screens only if not in guest mode */}
-              {!isGuestMode && windowWidth > 500 && (
-                <div className="flex space-x-2 mr-2">
-                  <Link href="/auth">
-                    <Button variant="outline" size="sm" className="text-xs">
-                      sign in
-                    </Button>
-                  </Link>
-                  {windowWidth > 640 && (
-                    <Link href="/auth">
-                      <Button
-                        variant="default"
-                        size="sm"
-                        className="text-xs bg-primary"
-                        onClick={() => {
-                          // Store preference to show register form
-                          if (typeof window !== 'undefined') {
-                            localStorage.setItem("showRegisterForm", "true");
-                          }
-                        }}
-                      >
-                        create account
-                      </Button>
-                    </Link>
-                  )}
-                </div>
-              )}
-            </>
+            <div className="hidden gap-2 sm:flex">{accountButtons}</div>
           )}
 
-          {/* Mobile menu - always show */}
-          <div className="flex items-center md:hidden">
-            <Sheet>
-              <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="ml-1 rounded-md hover:bg-zinc-800">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M4 6H20M4 12H20M4 18H20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                  <span className="sr-only">Menu</span>
-                </Button>
-              </SheetTrigger>
-              <SheetContent
-                side="right"
-                className="w-[240px] sm:w-[280px] bg-black border-zinc-800 text-zinc-200"
-                onOpenAutoFocus={(e) => {
-                  // Prevent auto focus which can cause blank white pages
-                  e.preventDefault();
-                }}
-                onCloseAutoFocus={(e) => {
-                  // Prevent auto focus which can cause blank white pages
-                  e.preventDefault();
-                }}
-              >
-                <nav className="flex flex-col space-y-4 mt-8">
-                  <Link href="/" onClick={() => {
-                    // Auto-close sidebar after 750ms
-                    setTimeout(() => {
-                      const closeButton = document.querySelector('[data-state="open"] button.absolute.right-4.top-4');
-                      if (closeButton) {
-                        (closeButton as HTMLElement).click();
-                      }
-                    }, 750);
-                  }}>
-                    <span className={`text-sm font-medium hover:text-gray-400 transition-colors ${location === '/' ? 'text-white underline' : 'text-gray-300'}`}>
-                      home
-                    </span>
+          <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="rounded-md hover:bg-zinc-800 md:hidden" aria-label="menu">
+                <Menu className="h-6 w-6" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-[260px] border-zinc-800 bg-black text-zinc-200">
+              <SheetTitle className="sr-only">menu</SheetTitle>
+              <nav className="mt-8 flex flex-col space-y-4">
+                {NAV_LINKS.map((link) => (
+                  <Link key={link.href} href={link.href} className={linkClass(link.href)} onClick={() => setMenuOpen(false)}>
+                    {link.label}
                   </Link>
-                  <Link href="/closet" onClick={() => {
-                    setTimeout(() => {
-                      const closeButton = document.querySelector('[data-state="open"] button.absolute.right-4.top-4');
-                      if (closeButton) {
-                        (closeButton as HTMLElement).click();
-                      }
-                    }, 750);
-                  }}>
-                    <span className={`text-sm font-medium hover:text-gray-400 transition-colors ${location === '/closet' ? 'text-white underline' : 'text-gray-300'}`}>
-                      my closet
-                    </span>
-                  </Link>
-                  <Link href="/outfit-creator" onClick={() => {
-                    setTimeout(() => {
-                      const closeButton = document.querySelector('[data-state="open"] button.absolute.right-4.top-4');
-                      if (closeButton) {
-                        (closeButton as HTMLElement).click();
-                      }
-                    }, 750);
-                  }}>
-                    <span className={`text-sm font-medium hover:text-gray-400 transition-colors ${location === '/outfit-creator' ? 'text-white underline' : 'text-gray-300'}`}>
-                      outfit creator
-                    </span>
-                  </Link>
-                  <Link href="/inspiration" onClick={() => {
-                    setTimeout(() => {
-                      const closeButton = document.querySelector('[data-state="open"] button.absolute.right-4.top-4');
-                      if (closeButton) {
-                        (closeButton as HTMLElement).click();
-                      }
-                    }, 750);
-                  }}>
-                    <span className={`text-sm font-medium hover:text-gray-400 transition-colors ${location.startsWith('/inspiration') ? 'text-white underline' : 'text-gray-300'}`}>
-                      inspiration
-                    </span>
-                  </Link>
-
-                  {isGuestMode && (
+                ))}
+                <div className="flex flex-col gap-2 pt-4">
+                  {user ? (
                     <Button
                       variant="outline"
                       size="sm"
-                      className="text-xs mt-4"
-                      onClick={exitGuestMode}
-                    >
-                      sign in
-                    </Button>
-                  )}
-
-                  {!user && !isGuestMode && (
-                    <div className="flex flex-col space-y-2 mt-4">
-                      <Link href="/auth" onClick={() => {
-                        setTimeout(() => {
-                          const closeButton = document.querySelector('[data-state="open"] button.absolute.right-4.top-4');
-                          if (closeButton) {
-                            (closeButton as HTMLElement).click();
-                          }
-                        }, 750);
-                      }}>
-                        <Button variant="outline" size="sm" className="text-xs w-full">
-                          sign in
-                        </Button>
-                      </Link>
-                      <Link href="/auth" onClick={() => {
-                        // Store preference to show register form
-                        if (typeof window !== 'undefined') {
-                          localStorage.setItem("showRegisterForm", "true");
-                        }
-                        // Auto-close sidebar
-                        setTimeout(() => {
-                          const closeButton = document.querySelector('[data-state="open"] button.absolute.right-4.top-4');
-                          if (closeButton) {
-                            (closeButton as HTMLElement).click();
-                          }
-                        }, 750);
-                      }}>
-                        <Button
-                          variant="default"
-                          size="sm"
-                          className="text-xs w-full"
-                        >
-                          create account
-                        </Button>
-                      </Link>
-                    </div>
-                  )}
-
-                  {user && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-xs mt-4"
-                      onClick={handleLogout}
+                      className="text-xs"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        logoutMutation.mutate();
+                      }}
                     >
                       logout
                     </Button>
+                  ) : (
+                    accountButtons
                   )}
-                </nav>
-              </SheetContent>
-            </Sheet>
-          </div>
+                </div>
+              </nav>
+            </SheetContent>
+          </Sheet>
         </div>
       </div>
     </header>

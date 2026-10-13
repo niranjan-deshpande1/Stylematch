@@ -29,7 +29,7 @@ const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName
 
 const sheetVariants = cva(
-  "fixed z-50 gap-4 bg-black p-6 shadow-lg transition ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
+  "fixed z-50 gap-4 bg-black p-6 text-zinc-200 shadow-lg transition ease-in-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
   {
     variants: {
       side: {
@@ -56,28 +56,12 @@ const SheetContent = React.forwardRef<
   SheetContentProps
 >(({ side = "right", className, children, ...props }, ref) => (
   <SheetPortal>
-    <SheetOverlay className="bg-black/90 backdrop-blur-sm" />
+    <SheetOverlay />
     <SheetPrimitive.Content
       ref={ref}
-      className={cn(
-        sheetVariants({ side }), 
-        "backdrop-blur-xl border-zinc-700 text-zinc-200 bg-black",
-        className
-      )}
-      style={{
-        backdropFilter: "blur(16px)",
-        WebkitBackdropFilter: "blur(16px)",
-        backgroundColor: "#121212", /* Dark gray almost black */
-        color: "#e4e4e7", /* Light gray for text */
-        boxShadow: "0 0 15px 5px rgba(0,0,0,0.3)",
-      }}
-      // Prevent focus trapping which can cause blank page issues
-      onOpenAutoFocus={(e) => e.preventDefault()} 
-      onCloseAutoFocus={(e) => e.preventDefault()}
-      onEscapeKeyDown={(e) => e.preventDefault()}
+      className={cn(sheetVariants({ side }), className)}
       {...props}
     >
-      <div className="absolute inset-0 bg-black/95 -z-10" aria-hidden="true"></div>
       {children}
       <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-black transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-zinc-700 focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-zinc-900 text-zinc-300">
         <X className="h-4 w-4" />

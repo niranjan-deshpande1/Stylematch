@@ -1,105 +1,56 @@
-import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
+import express, { type NextFunction, type Request, type Response } from "express";
+import { createServer } from "http";
+import { MulterError } from "multer";
 import { setupAuth } from "./auth";
-import { testConnection } from "./db";
+import { registerRoutes } from "./routes";
+import { HttpError } from "./http";
+import { serveClient, setupDevServer } from "./vite";
 
 const app = express();
+app.disable("x-powered-by");
+// The host puts a proxy in front of the app; trust it so req.ip is the real client.
+app.set("trust proxy", 1);
+app.use(express.json({ limit: "100kb" }));
 
-// CORS middleware for domain deployment
+// One line per API request: method, path, status, duration.
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-  } else {
-    next();
-  }
-});
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
-
-// Set default site mode to app unless explicitly set
-if (!process.env.SITE_MODE) {
-  process.env.SITE_MODE = 'app';
-}
-
-// Set up authentication with sessions and Passport
-setupAuth(app);
-
-app.use((req, res, next) => {
+  if (!req.path.startsWith("/api")) return next();
   const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
   res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
-    }
+    console.log(`${req.method} ${req.path} ${res.statusCode} ${Date.now() - start}ms`);
   });
-
   next();
 });
 
-(async () => {
-  // Test database connection
-  const connected = await testConnection();
-  if (!connected) {
-    console.error('WARNING: Database connection failed. Some features may not work.');
+setupAuth(app);
+registerRoutes(app);
+
+// Unknown API routes get a JSON 404 instead of falling through to the React app.
+app.use("/api", (_req, res) => {
+  res.status(404).json({ message: "Not found" });
+});
+
+const server = createServer(app);
+const port = Number(process.env.PORT ?? 5000);
+
+if (process.env.NODE_ENV === "production") {
+  serveClient(app);
+} else {
+  await setupDevServer(app, server);
+}
+
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  if (err instanceof HttpError) {
+    return res.status(err.status).json({ message: err.message });
   }
-
-  const server = await registerRoutes(app);
-
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    if (!res.headersSent) {
-      console.error(`Error handler: ${message}`);
-      res.status(status).json({ message });
-    } else {
-      console.error(`Error occurred after headers sent: ${message}`);
-    }
-
-    console.error(err);
-  });
-
-  // Serve uploaded images statically - must be before catch-all routes
-  app.use('/uploads', express.static('uploads'));
-
-  // Setup vite in development, otherwise serve static files
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
+  if (err instanceof MulterError) {
+    const message = err.code === "LIMIT_FILE_SIZE" ? "Images must be 8 MB or smaller" : err.message;
+    return res.status(400).json({ message });
   }
+  console.error(err);
+  res.status(500).json({ message: "Something went wrong on our end" });
+});
 
-  // api and client are both served on this port
-  const port = 5000;
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, async () => {
-    log(`serving on port ${port}`);
-  });
-})();
+server.listen(port, () => {
+  console.log(`StyleMatch running on http://localhost:${port}`);
+});
