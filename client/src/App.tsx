@@ -1,73 +1,61 @@
-import { Switch, Route } from "wouter";
-import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { Route, Switch } from "wouter";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
+import { getSiteMode } from "@/lib/api";
+import { AuthProvider } from "@/hooks/use-auth";
+import { ProtectedRoute } from "@/lib/protected-route";
 import { Toaster } from "@/components/ui/toaster";
-import PageTransition from "@/components/PageTransition";
-import NotFound from "@/pages/not-found";
 import Layout from "@/components/Layout";
 import Home from "@/pages/Home";
 import Closet from "@/pages/Closet";
+import ClosetUpload from "@/pages/ClosetUpload";
 import Inspiration from "@/pages/Inspiration";
 import InspirationUpload from "@/pages/InspirationUpload";
-import ClosetUpload from "@/pages/ClosetUpload";
-import OutfitIdeas from "@/pages/OutfitIdeas";
-import MissingPieces from "@/pages/MissingPieces";
 import StyleMatching from "@/pages/StyleMatching";
+import MissingPieces from "@/pages/MissingPieces";
 import OutfitCreator from "@/pages/OutfitCreator";
+import AuthPage from "@/pages/AuthPage";
+import AdminPage from "@/pages/AdminPage";
+import ComingSoonPage from "@/pages/ComingSoonPage";
 import Privacy from "@/pages/Privacy";
 import Terms from "@/pages/Terms";
-import AuthPage from "@/pages/auth-page";
-import ComingSoonPage from "@/pages/coming-soon-page";
-import AdminPage from "@/pages/admin-page";
-import { AuthProvider } from "@/hooks/use-auth";
-import { ProtectedRoute } from "@/lib/protected-route";
-import { useQuery } from "@tanstack/react-query";
+import NotFound from "@/pages/NotFound";
 
 function Router() {
-  // Check current site mode
-  const { data: modeData } = useQuery({
-    queryKey: ['site-mode'],
-    queryFn: async () => {
-      const response = await fetch('/api/admin/mode');
-      return response.json();
-    },
-    refetchInterval: 30000, // Check every 30 seconds
-  });
-
-  const isComingSoonMode = modeData?.mode === 'coming-soon';
-
-  // Show coming soon page if mode is set to coming-soon
-  if (isComingSoonMode) {
-    return <ComingSoonPage />;
-  }
+  const { data } = useQuery({ queryKey: ["/api/site/mode"], queryFn: getSiteMode });
 
   return (
-    <Layout>
-      <PageTransition>
-        <Switch>
-          <ProtectedRoute path="/" component={Home} />
-          <ProtectedRoute path="/closet" component={Closet} />
-          <ProtectedRoute path="/inspiration" component={Inspiration} />
-          <ProtectedRoute path="/inspiration-upload" component={InspirationUpload} />
-          <ProtectedRoute path="/closet-upload" component={ClosetUpload} />
-          <ProtectedRoute path="/outfit-ideas" component={OutfitIdeas} />
-          <ProtectedRoute path="/outfits" component={OutfitIdeas} />
-          <ProtectedRoute path="/inspiration/:id/missing-pieces" component={MissingPieces} />
-          <ProtectedRoute path="/inspiration/:id/style-matching" component={StyleMatching} />
-          <ProtectedRoute path="/outfit-creator" component={OutfitCreator} />
-          <Route path="/auth" component={AuthPage} />
-          <Route path="/privacy" component={Privacy} />
-          <Route path="/terms" component={Terms} />
-          <Route path="/coming-soon" component={ComingSoonPage} />
-          <Route path="/admindesh09" component={AdminPage} />
-          <Route component={NotFound} />
-        </Switch>
-      </PageTransition>
-    </Layout>
+    <Switch>
+      {/* The admin page stays reachable in coming-soon mode so it can be switched back. */}
+      <Route path="/admin" component={AdminPage} />
+      {data?.mode === "coming-soon" ? (
+        <Route component={ComingSoonPage} />
+      ) : (
+        <Route>
+          <Layout>
+            <Switch>
+              <ProtectedRoute path="/" component={Home} />
+              <ProtectedRoute path="/closet" component={Closet} />
+              <ProtectedRoute path="/closet-upload" component={ClosetUpload} />
+              <ProtectedRoute path="/inspiration" component={Inspiration} />
+              <ProtectedRoute path="/inspiration-upload" component={InspirationUpload} />
+              <ProtectedRoute path="/inspiration/:id/style-matching" component={StyleMatching} />
+              <ProtectedRoute path="/inspiration/:id/missing-pieces" component={MissingPieces} />
+              <ProtectedRoute path="/outfit-creator" component={OutfitCreator} />
+              <Route path="/auth" component={AuthPage} />
+              <Route path="/coming-soon" component={ComingSoonPage} />
+              <Route path="/privacy" component={Privacy} />
+              <Route path="/terms" component={Terms} />
+              <Route component={NotFound} />
+            </Switch>
+          </Layout>
+        </Route>
+      )}
+    </Switch>
   );
 }
 
-function App() {
+export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
@@ -77,5 +65,3 @@ function App() {
     </QueryClientProvider>
   );
 }
-
-export default App;

@@ -1,67 +1,31 @@
-import { useAuth } from "@/hooks/use-auth";
+import { useEffect, type ComponentType } from "react";
+import { Redirect, Route, useLocation } from "wouter";
 import { Loader2 } from "lucide-react";
-import { Route, useLocation, Redirect } from "wouter";
-import { useEffect, useState } from "react";
-import { isGuestMode } from "@/lib/api";
+import { useAuth } from "@/hooks/use-auth";
 
-export function ProtectedRoute({
-  path,
-  component: Component,
-}: {
-  path: string;
-  component: () => React.JSX.Element;
-}) {
-  const { user, isLoading } = useAuth();
+export const REDIRECT_KEY = "redirectAfterAuth";
+
+/** A route that needs a session (signed in or guest). Otherwise sends people to /auth. */
+export function ProtectedRoute({ path, component: Component }: { path: string; component: ComponentType }) {
+  const { hasSession, isLoading } = useAuth();
   const [location] = useLocation();
-  const [showLoading, setShowLoading] = useState(false);
-
-  // Check guest mode status
-  const guestMode = isGuestMode();
-
-  // Add a slight delay before showing loading indicator to prevent flashing
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (isLoading) {
-      timer = setTimeout(() => setShowLoading(true), 300);
-    } else {
-      setShowLoading(false);
-    }
-    return () => clearTimeout(timer);
-  }, [isLoading]);
 
   useEffect(() => {
-    // If not authenticated and not in guest mode, save the intended URL
-    if (typeof window !== 'undefined' && !user && !guestMode && !isLoading) {
-      localStorage.setItem("redirectAfterAuth", location);
-    }
-  }, [user, location, isLoading, guestMode]);
+    // Remember where they were headed so /auth can send them back.
+    if (!isLoading && !hasSession) sessionStorage.setItem(REDIRECT_KEY, location);
+  }, [isLoading, hasSession, location]);
 
-  // Show loading indicator
-  if (isLoading && showLoading) {
-    return (
-      <Route path={path}>
-        <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-          <Loader2 className="h-10 w-10 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Loading your session...</p>
+  return (
+    <Route path={path}>
+      {isLoading ? (
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-zinc-500" />
         </div>
-      </Route>
-    );
-  }
-
-  // Don't render anything during brief loading
-  if (isLoading && !showLoading) {
-    return <Route path={path}><div className="min-h-screen"></div></Route>;
-  }
-
-  // If the user is not authenticated and not in guest mode, redirect to auth
-  if (!user && !guestMode) {
-    return (
-      <Route path={path}>
+      ) : hasSession ? (
+        <Component />
+      ) : (
         <Redirect to="/auth" />
-      </Route>
-    );
-  }
-
-  // Allow access to the route for authenticated users or guests
-  return <Route path={path} component={Component} />;
+      )}
+    </Route>
+  );
 }

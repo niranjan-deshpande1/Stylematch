@@ -1,8 +1,10 @@
-import { pgTable, text, serial, integer, jsonb, timestamp, boolean, varchar, json } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
+import { pgTable, text, serial, integer, timestamp, boolean, varchar, json, jsonb, index } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
-// Users table
+// ---------------------------------------------------------------------------
+// Tables
+// ---------------------------------------------------------------------------
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
@@ -10,54 +12,72 @@ export const users = pgTable("users", {
   password: text("password").notNull(),
 });
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  email: true,
-  username: true,
-  password: true,
-});
+// Clothing items and inspiration images belong to an "owner". Signed-in users
+// own rows with their (positive) user id. Guests get a random negative id that
+// lives in their session, which is why userId has no foreign key.
+export const clothingItems = pgTable(
+  "clothing_items",
+  {
+    id: serial("id").primaryKey(),
+    imageUrl: text("image_url").notNull(),
+    styleTags: text("style_tags").array(),
+    category: text("category").notNull().default("other"),
+    createdAt: timestamp("created_at").defaultNow(),
+    userId: integer("user_id").notNull(),
+  },
+  (table) => [index("clothing_items_user_id_idx").on(table.userId)],
+);
 
-export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
+export const inspirationImages = pgTable(
+  "inspiration_images",
+  {
+    id: serial("id").primaryKey(),
+    imageUrl: text("image_url").notNull(),
+    styleTags: text("style_tags").array(),
+    createdAt: timestamp("created_at").defaultNow(),
+    userId: integer("user_id").notNull(),
+    isSaved: boolean("is_saved").default(false),
+    // Last missing-pieces answer from the AI, cleared whenever the owner's closet changes.
+    missingPieces: jsonb("missing_pieces").$type<MissingPiece[]>(),
+  },
+  (table) => [index("inspiration_images_user_id_idx").on(table.userId)],
+);
 
-// Email signups table for coming soon page
+// Waitlist emails collected while the site is in coming-soon mode.
 export const emailSignups = pgTable("email_signups", {
   id: serial("id").primaryKey(),
-  email: varchar("email", { length: 255 }).notNull(),
+  email: varchar("email", { length: 255 }).notNull().unique(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertEmailSignupSchema = createInsertSchema(emailSignups).pick({
-  email: true,
+// Small key/value table for settings that need to survive a restart
+// (currently just the site mode).
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
 });
 
-export type InsertEmailSignup = z.infer<typeof insertEmailSignupSchema>;
-export type EmailSignup = typeof emailSignups.$inferSelect;
-
-// Waitlist signups (separate table that already exists)
-export const waitlistSignups = pgTable("waitlist_signups", {
-  id: serial("id").primaryKey(),
-  email: text("email").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
+// Managed by connect-pg-simple. Declared here so `db:push` leaves it alone.
+export const sessions = pgTable("session", {
+  sid: varchar("sid", { length: 255 }).primaryKey(),
+  sess: json("sess").notNull(),
+  expire: timestamp("expire").notNull(),
 });
 
-// Style tags are stored as a simple array of strings
-export const inspirationImages = pgTable("inspiration_images", {
-  id: serial("id").primaryKey(),
-  imageUrl: text("imageUrl").notNull(),
-  styleTags: text("styleTags").array(),
-  createdAt: timestamp("createdAt").defaultNow(),
-  userId: integer("userId").notNull(),
-  isSaved: boolean("isSaved").default(false),
-});
+// ---------------------------------------------------------------------------
+// Row types
+// ---------------------------------------------------------------------------
 
-export const insertInspirationImageSchema = createInsertSchema(inspirationImages).pick({
-  imageUrl: true,
-  userId: true,
-  isSaved: true,
-  styleTags: true,
-});
+export type InsertUser = typeof users.$inferInsert;
+export type User = typeof users.$inferSelect;
+export type PublicUser = Omit<User, "password">;
+export type ClothingItem = typeof clothingItems.$inferSelect;
+export type InspirationImage = typeof inspirationImages.$inferSelect;
 
-// Clothing categories
+// ---------------------------------------------------------------------------
+// Shared constants
+// ---------------------------------------------------------------------------
+
 export const clothingCategories = [
   "tops",
   "bottoms",
@@ -66,94 +86,69 @@ export const clothingCategories = [
   "accessories",
   "dresses",
   "suits",
-  "other"
+  "other",
 ] as const;
 
-export const clothingItems = pgTable("clothing_items", {
-  id: serial("id").primaryKey(),
-  imageUrl: text("imageUrl").notNull(),
-  styleTags: text("styleTags").array(),
-  category: text("category").notNull().default("other"),
-  createdAt: timestamp("createdAt").defaultNow(),
-  userId: integer("userId").notNull(),
-});
+export const outfitSeasons = [
+  { id: "all-season", name: "all season" },
+  { id: "spring", name: "spring" },
+  { id: "summer", name: "summer" },
+  { id: "fall", name: "fall" },
+  { id: "winter", name: "winter" },
+] as const;
 
-export const insertClothingItemSchema = createInsertSchema(clothingItems).pick({
-  imageUrl: true,
-  category: true,
-  userId: true,
-  styleTags: true,
-});
+export const outfitThemes = [
+  { id: "chill", name: "chill", description: "relaxed and comfortable" },
+  { id: "old-money", name: "old money", description: "timeless elegance" },
+  { id: "streetwear", name: "streetwear", description: "urban and trendy" },
+  { id: "minimalist", name: "minimalist", description: "clean and simple" },
+  { id: "boho", name: "boho", description: "free-spirited and artistic" },
+  { id: "preppy", name: "preppy", description: "classic and polished" },
+  { id: "edgy", name: "edgy", description: "bold and alternative" },
+  { id: "romantic", name: "romantic", description: "soft and feminine" },
+] as const;
 
-// Session table for connect-pg-simple
-export const sessions = pgTable("session", {
-  sid: varchar("sid", { length: 255 }).primaryKey(),
-  sess: json("sess").notNull(),
-  expire: timestamp("expire").notNull(),
-});
+export const siteModes = ["app", "coming-soon"] as const;
+export type SiteMode = (typeof siteModes)[number];
 
-export type InspirationImage = typeof inspirationImages.$inferSelect;
-export type InsertInspirationImage = z.infer<typeof insertInspirationImageSchema>;
+// ---------------------------------------------------------------------------
+// API payloads
+// ---------------------------------------------------------------------------
 
-export type ClothingItem = typeof clothingItems.$inferSelect;
-export type InsertClothingItem = z.infer<typeof insertClothingItemSchema>;
-
-export const StyleTagsResponse = z.object({
-  tags: z.array(z.string()),
-});
-
-export type StyleTagsResponse = z.infer<typeof StyleTagsResponse>;
-
-export const ProductExampleSchema = z.object({
-  name: z.string(),
-  description: z.string().optional(),
-  link: z.string().optional(),
-  where: z.string().optional(),
-  price: z.string().optional(),
-});
-
-export type ProductExample = z.infer<typeof ProductExampleSchema>;
-
-export const MissingPieceSchema = z.object({
+export const missingPieceSchema = z.object({
   category: z.string(),
   description: z.string(),
   importance: z.enum(["high", "medium", "low"]),
   reason: z.string(),
-  examples: z.array(ProductExampleSchema).optional(),
   searchTerms: z.array(z.string()).optional(),
-  wheretoBuy: z.string().optional(),
+  whereToBuy: z.string().optional(),
 });
 
-export type MissingPiece = z.infer<typeof MissingPieceSchema>;
+export type MissingPiece = z.infer<typeof missingPieceSchema>;
 
-export const MissingPiecesResponse = z.object({
-  missingPieces: z.array(MissingPieceSchema),
-});
+export interface Outfit {
+  id: string;
+  name: string;
+  description: string;
+  items: number[];
+  style: string;
+  occasion: string;
+  season: string;
+}
 
-export type MissingPiecesResponse = z.infer<typeof MissingPiecesResponse>;
+export interface OutfitsResponse {
+  outfits: Outfit[];
+  message?: string;
+}
 
-export const OutfitCombinationSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string(),
-  items: z.array(z.number()),
-  style: z.string(),
-  occasion: z.string(),
-  season: z.string().optional(),
-});
+export interface StyleMatchResponse {
+  matchingItems: number[];
+  matchScore: number;
+  coveredTags: string[];
+  missingTags: string[];
+}
 
-export type OutfitCombination = z.infer<typeof OutfitCombinationSchema>;
-
-export const OutfitCombinationsResponse = z.object({
-  outfits: z.array(OutfitCombinationSchema),
-});
-
-export type OutfitCombinationsResponse = z.infer<typeof OutfitCombinationsResponse>;
-
-export const StyleMatchingResponse = z.object({
-  matchingItems: z.array(z.number()),
-  matchScore: z.number().min(0).max(100),
-  styleNotes: z.string(),
-});
-
-export type StyleMatchingResponse = z.infer<typeof StyleMatchingResponse>;
+export interface SessionResponse {
+  user: PublicUser | null;
+  isGuest: boolean;
+}
